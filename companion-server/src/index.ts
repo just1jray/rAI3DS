@@ -1,8 +1,9 @@
-import { startHttpServer, setBroadcast } from "./server";
+import { startHttpServer, setBroadcast, updateState } from "./server";
 import { startWebSocketServer, broadcast, setClaudeAdapter } from "./websocket";
 import { createClaudeAdapter } from "./adapters/claude";
 import { installHooks, uninstallHooks } from "./hooks";
 import { startContextTracker } from "./context";
+import { startScraper } from "./scraper";
 
 const HELP = `
 rAI3DS Companion Server
@@ -61,6 +62,30 @@ async function main() {
   startWebSocketServer();
   setBroadcast(broadcast);
   startContextTracker(10_000);
+
+  // Start tmux screen scraper to detect permission prompts
+  startScraper({
+    onPromptAppeared(prompt) {
+      console.log(`[scraper] Prompt appeared: ${prompt.toolType} — ${prompt.toolDetail}`);
+      updateState({
+        state: "waiting",
+        message: `${prompt.toolType}: ${prompt.toolDetail}`,
+        promptToolType: prompt.toolType,
+        promptToolDetail: prompt.toolDetail,
+        promptDescription: prompt.description,
+      });
+    },
+    onPromptDisappeared() {
+      console.log("[scraper] Prompt disappeared");
+      updateState({
+        state: "working",
+        message: "Running...",
+        promptToolType: undefined,
+        promptToolDetail: undefined,
+        promptDescription: undefined,
+      });
+    },
+  });
 
   console.log("Server ready. Waiting for hooks and 3DS connections...");
 }

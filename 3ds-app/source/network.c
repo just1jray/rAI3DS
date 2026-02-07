@@ -173,6 +173,34 @@ static void parse_agent_status(const char* json, Agent* agents, int* agent_count
     cJSON* context = cJSON_GetObjectItem(root, "contextPercent");
     agents[idx].context_percent = (context && cJSON_IsNumber(context)) ? context->valueint : 0;
 
+    // Parse prompt fields
+    cJSON* promptToolType = cJSON_GetObjectItem(root, "promptToolType");
+    cJSON* promptToolDetail = cJSON_GetObjectItem(root, "promptToolDetail");
+    cJSON* promptDescription = cJSON_GetObjectItem(root, "promptDescription");
+
+    if (promptToolType && cJSON_IsString(promptToolType) && promptToolType->valuestring[0] != '\0') {
+        agents[idx].prompt_visible = true;
+        strncpy(agents[idx].prompt_tool_type, promptToolType->valuestring, sizeof(agents[idx].prompt_tool_type) - 1);
+        agents[idx].prompt_tool_type[sizeof(agents[idx].prompt_tool_type) - 1] = '\0';
+    } else {
+        agents[idx].prompt_visible = false;
+        agents[idx].prompt_tool_type[0] = '\0';
+    }
+
+    if (promptToolDetail && cJSON_IsString(promptToolDetail)) {
+        strncpy(agents[idx].prompt_tool_detail, promptToolDetail->valuestring, sizeof(agents[idx].prompt_tool_detail) - 1);
+        agents[idx].prompt_tool_detail[sizeof(agents[idx].prompt_tool_detail) - 1] = '\0';
+    } else {
+        agents[idx].prompt_tool_detail[0] = '\0';
+    }
+
+    if (promptDescription && cJSON_IsString(promptDescription)) {
+        strncpy(agents[idx].prompt_description, promptDescription->valuestring, sizeof(agents[idx].prompt_description) - 1);
+        agents[idx].prompt_description[sizeof(agents[idx].prompt_description) - 1] = '\0';
+    } else {
+        agents[idx].prompt_description[0] = '\0';
+    }
+
     cJSON_Delete(root);
 }
 

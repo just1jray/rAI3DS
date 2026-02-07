@@ -8,9 +8,11 @@ export interface AgentStatus {
   state: AgentState;
   progress: number; // 0-100, -1 for indeterminate
   message: string;
-  pendingCommand?: string;
   lastUpdate: number;
   contextPercent: number; // 0-100
+  promptToolType?: string;
+  promptToolDetail?: string;
+  promptDescription?: string;
 }
 
 // Hook payloads from Claude Code
@@ -32,15 +34,17 @@ export interface AgentStatusMessage {
   state: AgentState;
   progress: number;
   message: string;
-  pendingCommand?: string;
   contextPercent?: number;
+  promptToolType?: string;
+  promptToolDetail?: string;
+  promptDescription?: string;
 }
 
 // Messages from 3DS
 export interface UserAction {
   type: "action";
   agent: AgentName;
-  action: "approve" | "deny" | "cancel";
+  action: "yes" | "always" | "no" | "escape";
 }
 
 export interface UserCommand {

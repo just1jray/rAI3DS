@@ -23,25 +23,9 @@ export function getAgentState(): AgentStatus {
   return agentState;
 }
 
-function updateState(updates: Partial<AgentStatus>) {
+export function updateState(updates: Partial<AgentStatus>) {
   Object.assign(agentState, updates, { lastUpdate: Date.now() });
   broadcast(agentState);
-}
-
-// Pending tool approval - resolves when 3DS user taps approve/deny
-let pendingToolResolve: ((action: "approve" | "deny") => void) | null = null;
-const TOOL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-
-export function resolveToolAction(action: "approve" | "deny") {
-  if (pendingToolResolve) {
-    console.log(`[server] Tool action resolved: ${action}`);
-    pendingToolResolve(action);
-    pendingToolResolve = null;
-  }
-}
-
-export function hasPendingTool(): boolean {
-  return pendingToolResolve !== null;
 }
 
 // Context percent updater (called by context tracker)
@@ -66,49 +50,19 @@ export function startHttpServer() {
         return Response.json({ status: "ok", agent: agentState });
       }
 
-      // Pre-tool hook: BLOCKING - waits for 3DS user approval
+      // Pre-tool hook: instant no-op (scraper handles prompt detection)
       if (path === "/hook/pre-tool" && req.method === "POST") {
         try {
           const body = (await req.json()) as PreToolHook;
-          console.log(`[hook] pre-tool: ${body.tool} (waiting for approval)`);
+          console.log(`[hook] pre-tool: ${body.tool}`);
 
           updateState({
-            state: "waiting",
+            state: "working",
             progress: -1,
-            message: `Approve? ${body.tool}`,
-            pendingCommand: body.tool,
+            message: `Running: ${body.tool}`,
           });
 
-          // Wait for 3DS user to approve/deny (or timeout)
-          const action = await new Promise<"approve" | "deny">((resolve) => {
-            pendingToolResolve = resolve;
-            setTimeout(() => {
-              if (pendingToolResolve === resolve) {
-                console.log("[hook] Tool approval timed out, auto-approving");
-                pendingToolResolve = null;
-                resolve("approve");
-              }
-            }, TOOL_TIMEOUT_MS);
-          });
-
-          // Update state based on action
-          if (action === "approve") {
-            updateState({
-              state: "working",
-              progress: -1,
-              message: `Running: ${body.tool}`,
-              pendingCommand: undefined,
-            });
-          } else {
-            updateState({
-              state: "idle",
-              progress: -1,
-              message: `Denied: ${body.tool}`,
-              pendingCommand: undefined,
-            });
-          }
-
-          return Response.json({ action });
+          return Response.json({ action: "approve" });
         } catch (e) {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });
         }
@@ -124,7 +78,6 @@ export function startHttpServer() {
             state: body.error ? "error" : "idle",
             progress: -1,
             message: body.error || `Done: ${body.tool}`,
-            pendingCommand: undefined,
           });
 
           return Response.json({ ok: true });

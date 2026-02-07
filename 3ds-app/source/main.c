@@ -74,12 +74,17 @@ int main(int argc, char* argv[]) {
             touchPosition touch;
             hidTouchRead(&touch);
 
-            if (ui_touch_approve(touch) && agents[selectedAgent].state == STATE_WAITING) {
-                printf("Sending approve\n");
-                network_send_action(agents[selectedAgent].name, "approve");
-            } else if (ui_touch_deny(touch) && agents[selectedAgent].state == STATE_WAITING) {
-                printf("Sending deny\n");
-                network_send_action(agents[selectedAgent].name, "deny");
+            if (agents[selectedAgent].prompt_visible) {
+                if (ui_touch_yes(touch)) {
+                    printf("Sending yes\n");
+                    network_send_action(agents[selectedAgent].name, "yes");
+                } else if (ui_touch_always(touch)) {
+                    printf("Sending always\n");
+                    network_send_action(agents[selectedAgent].name, "always");
+                } else if (ui_touch_no(touch)) {
+                    printf("Sending no\n");
+                    network_send_action(agents[selectedAgent].name, "no");
+                }
             }
         }
 

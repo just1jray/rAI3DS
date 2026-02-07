@@ -1,7 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { AgentStatus, DSMessage, AgentStatusMessage } from "./types";
 import type { ClaudeAdapter } from "./adapters/claude";
-import { resolveToolAction, hasPendingTool } from "./server";
 
 const WS_PORT = 3334;
 const HOST = "0.0.0.0"; // Listen on all interfaces so 3DS on LAN can connect
@@ -50,17 +49,20 @@ async function handleMessage(msg: DSMessage) {
 
   const isClaudeAgent = msg.agent.toLowerCase() === "claude";
 
-  if (msg.type === "action" && isClaudeAgent) {
-    if (hasPendingTool() && (msg.action === "approve" || msg.action === "deny")) {
-      // Resolve the blocking hook request directly
-      resolveToolAction(msg.action);
-    } else if (claudeAdapter) {
-      // Fallback to tmux adapter for non-hook actions
-      if (msg.action === "approve") {
-        await claudeAdapter.sendApproval();
-      } else if (msg.action === "deny") {
-        await claudeAdapter.sendDenial();
-      }
+  if (msg.type === "action" && isClaudeAgent && claudeAdapter) {
+    switch (msg.action) {
+      case "yes":
+        await claudeAdapter.sendYes();
+        break;
+      case "always":
+        await claudeAdapter.sendAlways();
+        break;
+      case "no":
+        await claudeAdapter.sendNo();
+        break;
+      case "escape":
+        await claudeAdapter.sendEscape();
+        break;
     }
   } else if (msg.type === "command" && isClaudeAgent && claudeAdapter) {
     await claudeAdapter.sendInput(msg.command);
@@ -74,8 +76,10 @@ export function broadcast(status: AgentStatus) {
     state: status.state,
     progress: status.progress,
     message: status.message,
-    pendingCommand: status.pendingCommand,
     contextPercent: status.contextPercent,
+    promptToolType: status.promptToolType,
+    promptToolDetail: status.promptToolDetail,
+    promptDescription: status.promptDescription,
   };
 
   const data = JSON.stringify(message);

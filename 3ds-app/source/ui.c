@@ -11,6 +11,7 @@ static u32 clrGreen;
 static u32 clrRed;
 static u32 clrYellow;
 static u32 clrBlue;
+static u32 clrDarkGray;
 
 // Text buffers
 static C2D_TextBuf textBuf;
@@ -21,27 +22,35 @@ static C2D_TextBuf textBuf;
 #define BOT_WIDTH 320
 #define BOT_HEIGHT 240
 
-// Button dimensions (bottom screen)
-#define BTN_APPROVE_X 20
-#define BTN_APPROVE_Y 20
-#define BTN_APPROVE_W 130
-#define BTN_APPROVE_H 80
+// 3-button layout: 95px wide, 8px gaps, centered in 320px
+// Total: 95*3 + 8*2 = 301, left margin = (320-301)/2 = ~10
+#define BTN_Y       15
+#define BTN_H       65
+#define BTN_W       95
+#define BTN_GAP     8
+#define BTN_LEFT    10
 
-#define BTN_DENY_X 170
-#define BTN_DENY_Y 20
-#define BTN_DENY_W 130
-#define BTN_DENY_H 80
+#define BTN_YES_X     BTN_LEFT
+#define BTN_ALWAYS_X  (BTN_LEFT + BTN_W + BTN_GAP)
+#define BTN_NO_X      (BTN_LEFT + 2*(BTN_W + BTN_GAP))
+
+// Tool detail area
+#define DETAIL_Y      90
+#define DETAIL_X      10
+#define DETAIL_W      300
+#define DETAIL_H      68
 
 void ui_init(void) {
-    clrBackground = C2D_Color32(0x2a, 0x2a, 0x4a, 0xFF);  // Slightly brighter for physical 3DS screens
+    clrBackground = C2D_Color32(0x2a, 0x2a, 0x4a, 0xFF);
     clrWhite = C2D_Color32(0xFF, 0xFF, 0xFF, 0xFF);
     clrGray = C2D_Color32(0x88, 0x88, 0x88, 0xFF);
     clrGreen = C2D_Color32(0x4C, 0xAF, 0x50, 0xFF);
     clrRed = C2D_Color32(0xF4, 0x43, 0x36, 0xFF);
     clrYellow = C2D_Color32(0xFF, 0xC1, 0x07, 0xFF);
     clrBlue = C2D_Color32(0x21, 0x96, 0xF3, 0xFF);
+    clrDarkGray = C2D_Color32(0x44, 0x44, 0x44, 0xFF);
 
-    textBuf = C2D_TextBufNew(1024);
+    textBuf = C2D_TextBufNew(2048);
 }
 
 void ui_exit(void) {
@@ -159,7 +168,7 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool conn
 
     C2D_TextBufClear(textBuf);
 
-    // Connection status (show target so user can verify IP matches PC)
+    // Connection status
     if (!connected) {
         C2D_Text txtDisc;
         C2D_TextParse(&txtDisc, textBuf, "Connecting...");
@@ -185,32 +194,75 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool conn
         return;
     }
 
-    // Approve button
-    u32 approveColor = (selected_agent && selected_agent->state == STATE_WAITING) ? clrGreen : clrGray;
-    C2D_DrawRectSolid(BTN_APPROVE_X, BTN_APPROVE_Y, 0, BTN_APPROVE_W, BTN_APPROVE_H, approveColor);
-    C2D_Text txtApprove;
-    C2D_TextParse(&txtApprove, textBuf, "APPROVE");
-    C2D_TextOptimize(&txtApprove);
-    C2D_DrawText(&txtApprove, C2D_WithColor, BTN_APPROVE_X + 25, BTN_APPROVE_Y + 30, 0, 0.8f, 0.8f, clrWhite);
+    bool prompt = selected_agent && selected_agent->prompt_visible;
 
-    // Deny button
-    u32 denyColor = (selected_agent && selected_agent->state == STATE_WAITING) ? clrRed : clrGray;
-    C2D_DrawRectSolid(BTN_DENY_X, BTN_DENY_Y, 0, BTN_DENY_W, BTN_DENY_H, denyColor);
-    C2D_Text txtDeny;
-    C2D_TextParse(&txtDeny, textBuf, "DENY");
-    C2D_TextOptimize(&txtDeny);
-    C2D_DrawText(&txtDeny, C2D_WithColor, BTN_DENY_X + 40, BTN_DENY_Y + 30, 0, 0.8f, 0.8f, clrWhite);
+    // YES button
+    u32 yesColor = prompt ? clrGreen : clrDarkGray;
+    C2D_DrawRectSolid(BTN_YES_X, BTN_Y, 0, BTN_W, BTN_H, yesColor);
+    C2D_Text txtYes;
+    C2D_TextParse(&txtYes, textBuf, "YES");
+    C2D_TextOptimize(&txtYes);
+    C2D_DrawText(&txtYes, C2D_WithColor, BTN_YES_X + 28, BTN_Y + 22, 0, 0.75f, 0.75f, clrWhite);
 
-    // Context area - show pending command
-    if (selected_agent && selected_agent->pending_command[0] != '\0') {
-        C2D_DrawRectSolid(10, 115, 0, 300, 50, C2D_Color32(0x2a, 0x2a, 0x4e, 0xFF));
+    // ALWAYS button
+    u32 alwaysColor = prompt ? clrBlue : clrDarkGray;
+    C2D_DrawRectSolid(BTN_ALWAYS_X, BTN_Y, 0, BTN_W, BTN_H, alwaysColor);
+    C2D_Text txtAlways;
+    C2D_TextParse(&txtAlways, textBuf, "ALWAYS");
+    C2D_TextOptimize(&txtAlways);
+    C2D_DrawText(&txtAlways, C2D_WithColor, BTN_ALWAYS_X + 13, BTN_Y + 22, 0, 0.7f, 0.7f, clrWhite);
 
-        C2D_Text txtCmd;
-        char cmdBuf[64];
-        snprintf(cmdBuf, sizeof(cmdBuf), "%.55s", selected_agent->pending_command);
-        C2D_TextParse(&txtCmd, textBuf, cmdBuf);
-        C2D_TextOptimize(&txtCmd);
-        C2D_DrawText(&txtCmd, C2D_WithColor, 15, 125, 0, 0.45f, 0.45f, clrWhite);
+    // NO button
+    u32 noColor = prompt ? clrRed : clrDarkGray;
+    C2D_DrawRectSolid(BTN_NO_X, BTN_Y, 0, BTN_W, BTN_H, noColor);
+    C2D_Text txtNo;
+    C2D_TextParse(&txtNo, textBuf, "NO");
+    C2D_TextOptimize(&txtNo);
+    C2D_DrawText(&txtNo, C2D_WithColor, BTN_NO_X + 33, BTN_Y + 22, 0, 0.75f, 0.75f, clrWhite);
+
+    // Tool detail area
+    if (selected_agent && selected_agent->prompt_tool_type[0] != '\0') {
+        C2D_DrawRectSolid(DETAIL_X, DETAIL_Y, 0, DETAIL_W, DETAIL_H, C2D_Color32(0x1a, 0x1a, 0x3a, 0xFF));
+
+        // Tool type (yellow)
+        C2D_Text txtToolType;
+        char typeBuf[64];
+        snprintf(typeBuf, sizeof(typeBuf), "%.60s", selected_agent->prompt_tool_type);
+        C2D_TextParse(&txtToolType, textBuf, typeBuf);
+        C2D_TextOptimize(&txtToolType);
+        C2D_DrawText(&txtToolType, C2D_WithColor, DETAIL_X + 5, DETAIL_Y + 4, 0, 0.5f, 0.5f, clrYellow);
+
+        // Separator line
+        C2D_DrawRectSolid(DETAIL_X, DETAIL_Y + 22, 0, DETAIL_W, 1, clrDarkGray);
+
+        // Tool detail (white)
+        if (selected_agent->prompt_tool_detail[0] != '\0') {
+            C2D_Text txtDetail;
+            char detailBuf[64];
+            snprintf(detailBuf, sizeof(detailBuf), "%.55s", selected_agent->prompt_tool_detail);
+            C2D_TextParse(&txtDetail, textBuf, detailBuf);
+            C2D_TextOptimize(&txtDetail);
+            C2D_DrawText(&txtDetail, C2D_WithColor, DETAIL_X + 5, DETAIL_Y + 27, 0, 0.45f, 0.45f, clrWhite);
+        }
+
+        // Description (gray)
+        if (selected_agent->prompt_description[0] != '\0') {
+            C2D_Text txtDesc;
+            char descBuf[64];
+            snprintf(descBuf, sizeof(descBuf), "%.55s", selected_agent->prompt_description);
+            C2D_TextParse(&txtDesc, textBuf, descBuf);
+            C2D_TextOptimize(&txtDesc);
+            C2D_DrawText(&txtDesc, C2D_WithColor, DETAIL_X + 5, DETAIL_Y + 46, 0, 0.4f, 0.4f, clrGray);
+        }
+    } else if (selected_agent && selected_agent->message[0] != '\0') {
+        // No prompt visible — show agent message in the detail area
+        C2D_DrawRectSolid(DETAIL_X, DETAIL_Y, 0, DETAIL_W, DETAIL_H, C2D_Color32(0x1a, 0x1a, 0x3a, 0xFF));
+        C2D_Text txtMsg;
+        char msgBuf[64];
+        snprintf(msgBuf, sizeof(msgBuf), "%.55s", selected_agent->message);
+        C2D_TextParse(&txtMsg, textBuf, msgBuf);
+        C2D_TextOptimize(&txtMsg);
+        C2D_DrawText(&txtMsg, C2D_WithColor, DETAIL_X + 5, DETAIL_Y + 25, 0, 0.45f, 0.45f, clrGray);
     }
 
     // Agent tabs at bottom
@@ -218,7 +270,7 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool conn
     const char* agentNames[] = {"Claude", "Codex", "Gemini", "Cursor"};
     for (int i = 0; i < 4; i++) {
         float x = i * tabWidth;
-        u32 tabColor = (i == 0) ? clrBlue : C2D_Color32(0x33, 0x33, 0x33, 0xFF);  // Only Claude active for MVP
+        u32 tabColor = (i == 0) ? clrBlue : C2D_Color32(0x33, 0x33, 0x33, 0xFF);
         C2D_DrawRectSolid(x, BOT_HEIGHT - 30, 0, tabWidth - 2, 30, tabColor);
 
         C2D_Text txtTab;
@@ -228,12 +280,17 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool conn
     }
 }
 
-int ui_touch_approve(touchPosition touch) {
-    return (touch.px >= BTN_APPROVE_X && touch.px <= BTN_APPROVE_X + BTN_APPROVE_W &&
-            touch.py >= BTN_APPROVE_Y && touch.py <= BTN_APPROVE_Y + BTN_APPROVE_H);
+int ui_touch_yes(touchPosition touch) {
+    return (touch.px >= BTN_YES_X && touch.px <= BTN_YES_X + BTN_W &&
+            touch.py >= BTN_Y && touch.py <= BTN_Y + BTN_H);
 }
 
-int ui_touch_deny(touchPosition touch) {
-    return (touch.px >= BTN_DENY_X && touch.px <= BTN_DENY_X + BTN_DENY_W &&
-            touch.py >= BTN_DENY_Y && touch.py <= BTN_DENY_Y + BTN_DENY_H);
+int ui_touch_always(touchPosition touch) {
+    return (touch.px >= BTN_ALWAYS_X && touch.px <= BTN_ALWAYS_X + BTN_W &&
+            touch.py >= BTN_Y && touch.py <= BTN_Y + BTN_H);
+}
+
+int ui_touch_no(touchPosition touch) {
+    return (touch.px >= BTN_NO_X && touch.px <= BTN_NO_X + BTN_W &&
+            touch.py >= BTN_Y && touch.py <= BTN_Y + BTN_H);
 }

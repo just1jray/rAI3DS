@@ -16,10 +16,13 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count, int
 // Render bottom screen with touch controls
 void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool connected);
 
-// Check if touch is in approve button (returns 1 if yes)
-int ui_touch_approve(touchPosition touch);
+// Check if touch is in Yes button
+int ui_touch_yes(touchPosition touch);
 
-// Check if touch is in deny button (returns 1 if yes)
-int ui_touch_deny(touchPosition touch);
+// Check if touch is in Always button
+int ui_touch_always(touchPosition touch);
+
+// Check if touch is in No button
+int ui_touch_no(touchPosition touch);
 
 #endif // UI_H
