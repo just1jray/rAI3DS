@@ -1,3 +1,7 @@
+import { startHttpServer } from "./server";
+
 console.log("rAI3DS Companion Server starting...");
-console.log("HTTP server will listen on :3333");
-console.log("WebSocket server will listen on :3334");
+
+startHttpServer();
+
+console.log("Server ready. Waiting for hooks and 3DS connections...");
