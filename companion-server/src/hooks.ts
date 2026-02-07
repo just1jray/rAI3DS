@@ -6,7 +6,7 @@ import { join } from "path";
 const CLAUDE_SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
 
 interface HookEntry {
-  matcher: { tools: string[] };
+  matcher: string;
   hooks: Array<{ type: "command"; command: string }>;
 }
 
@@ -21,7 +21,7 @@ interface ClaudeSettings {
 const RAIDS_HOOKS = {
   PreToolUse: [
     {
-      matcher: { tools: ["*"] },
+      matcher: "",
       hooks: [
         {
           type: "command" as const,
@@ -32,7 +32,7 @@ const RAIDS_HOOKS = {
   ],
   PostToolUse: [
     {
-      matcher: { tools: ["*"] },
+      matcher: "",
       hooks: [
         {
           type: "command" as const,
