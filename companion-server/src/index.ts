@@ -1,4 +1,4 @@
-import { startServer, setClaudeAdapter, updateState } from "./server";
+import { startServer, setClaudeAdapter, updateState, isAutoEditEnabled } from "./server";
 import { createClaudeAdapter } from "./adapters/claude";
 import { installHooks, uninstallHooks } from "./hooks";
 import { startContextTracker } from "./context";
@@ -60,12 +60,37 @@ async function main() {
   startServer();
   startContextTracker(10_000);
 
+  // Auto-edit: tool type patterns that match edit/write operations
+  const AUTO_EDIT_PATTERNS = ["edit", "write", "notebook"];
+
   // Start tmux screen scraper to detect permission prompts
   startScraper({
     onPromptAppeared(prompt) {
       console.log(
         `[scraper] Prompt appeared: ${prompt.toolType} — ${prompt.toolDetail}`
       );
+
+      // Auto-edit: send YES keystroke automatically for edit tools
+      const isEditTool = AUTO_EDIT_PATTERNS.some((p) =>
+        prompt.toolType.toLowerCase().includes(p)
+      );
+      if (isAutoEditEnabled() && isEditTool) {
+        console.log(`[auto-edit] Auto-approving: ${prompt.toolType}`);
+        claudeAdapter.sendYes().catch((e: unknown) =>
+          console.error("[auto-edit] keystroke error:", e)
+        );
+        updateState({
+          state: "working",
+          progress: -1,
+          message: `Auto-approved: ${prompt.toolType}`,
+          promptToolType: undefined,
+          promptToolDetail: undefined,
+          promptDescription: undefined,
+        });
+        return;
+      }
+
+      // Normal flow: show prompt on 3DS for user to approve/deny
       updateState({
         state: "waiting",
         message: `${prompt.toolType}: ${prompt.toolDetail}`,
