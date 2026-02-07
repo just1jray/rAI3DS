@@ -112,14 +112,31 @@ export function parsePrompt(content: string): PromptInfo | null {
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let lastPrompt: PromptInfo | null = null;
+let tmuxSessionAlive = false;
+
+export function isTmuxAvailable(): boolean {
+  return tmuxSessionAlive;
+}
 
 export function startScraper(callbacks: ScraperCallbacks) {
   console.log(`[scraper] Starting tmux scraper (every ${POLL_INTERVAL_MS}ms)`);
 
   const tick = async () => {
+    // Check if tmux session exists
+    try {
+      await $`tmux has-session -t ${TMUX_SESSION}`.quiet();
+      tmuxSessionAlive = true;
+    } catch {
+      tmuxSessionAlive = false;
+      if (lastPrompt) {
+        lastPrompt = null;
+        callbacks.onPromptDisappeared();
+      }
+      return;
+    }
+
     const content = await captureTmuxPane();
     if (!content) {
-      // tmux session not available
       if (lastPrompt) {
         lastPrompt = null;
         callbacks.onPromptDisappeared();

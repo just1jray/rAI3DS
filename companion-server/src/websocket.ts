@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { AgentStatus, DSMessage, AgentStatusMessage } from "./types";
 import type { ClaudeAdapter } from "./adapters/claude";
+import { resolveToolAction, hasPendingTool } from "./server";
 
 const WS_PORT = 3334;
 const HOST = "0.0.0.0"; // Listen on all interfaces so 3DS on LAN can connect
@@ -49,20 +50,30 @@ async function handleMessage(msg: DSMessage) {
 
   const isClaudeAgent = msg.agent.toLowerCase() === "claude";
 
-  if (msg.type === "action" && isClaudeAgent && claudeAdapter) {
-    switch (msg.action) {
-      case "yes":
-        await claudeAdapter.sendYes();
-        break;
-      case "always":
-        await claudeAdapter.sendAlways();
-        break;
-      case "no":
-        await claudeAdapter.sendNo();
-        break;
-      case "escape":
-        await claudeAdapter.sendEscape();
-        break;
+  if (msg.type === "action" && isClaudeAgent) {
+    const hookAction = msg.action === "no" || msg.action === "escape" ? "deny" : "approve";
+
+    // Resolve blocking hook if one is pending (no-tmux fallback)
+    if (hasPendingTool()) {
+      resolveToolAction(hookAction);
+    }
+
+    // Also try tmux keystrokes (works when Claude is in tmux)
+    if (claudeAdapter) {
+      switch (msg.action) {
+        case "yes":
+          await claudeAdapter.sendYes();
+          break;
+        case "always":
+          await claudeAdapter.sendAlways();
+          break;
+        case "no":
+          await claudeAdapter.sendNo();
+          break;
+        case "escape":
+          await claudeAdapter.sendEscape();
+          break;
+      }
     }
   } else if (msg.type === "command" && isClaudeAgent && claudeAdapter) {
     await claudeAdapter.sendInput(msg.command);

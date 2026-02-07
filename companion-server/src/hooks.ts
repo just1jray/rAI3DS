@@ -25,7 +25,7 @@ const RAIDS_HOOKS = {
       hooks: [
         {
           type: "command" as const,
-          command: `curl -s -X POST http://localhost:3333/hook/pre-tool -H "Content-Type: application/json" -d "{\\"tool\\":\\"$CLAUDE_TOOL_NAME\\"}" > /dev/null 2>&1 & exit 0`,
+          command: `RESULT=$(curl -s --max-time 300 -X POST http://localhost:3333/hook/pre-tool -H "Content-Type: application/json" -d "{\\"tool\\":\\"$CLAUDE_TOOL_NAME\\"}"); case "$RESULT" in *"deny"*) exit 2;; *) exit 0;; esac`,
         },
       ],
     },

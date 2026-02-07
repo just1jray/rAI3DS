@@ -25,4 +25,10 @@ int ui_touch_always(touchPosition touch);
 // Check if touch is in No button
 int ui_touch_no(touchPosition touch);
 
+// Check if touch is in Auto-Edit toggle button
+int ui_touch_auto_edit(touchPosition touch);
+
+// Set auto-edit state for rendering
+void ui_set_auto_edit(bool enabled);
+
 #endif // UI_H

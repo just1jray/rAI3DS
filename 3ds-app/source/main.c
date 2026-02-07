@@ -17,6 +17,7 @@ static int selectedAgent = 0;
 static int reconnect_timer = 0;
 static bool network_ready = false;       // network_init() succeeded
 static bool first_connection_done = false;  // defer first connect until after first frame (avoids blocking on real 3DS)
+static bool auto_edit = false;           // auto-accept Edit/Write tools
 
 int main(int argc, char* argv[]) {
     // Initialize services
@@ -69,12 +70,26 @@ int main(int argc, char* argv[]) {
             reconnect_timer = 0;
         }
 
+        // Auto-accept edits: if prompt is for Edit/Write and toggle is on, auto-approve
+        if (auto_edit && agents[selectedAgent].prompt_visible) {
+            const char* tt = agents[selectedAgent].prompt_tool_type;
+            if (strcasecmp(tt, "Edit") == 0 || strcasecmp(tt, "Write") == 0 ||
+                strcasecmp(tt, "NotebookEdit") == 0) {
+                printf("Auto-accepting edit: %s\n", tt);
+                network_send_action(agents[selectedAgent].name, "yes");
+            }
+        }
+
         // Handle touch
         if (kDown & KEY_TOUCH) {
             touchPosition touch;
             hidTouchRead(&touch);
 
-            if (agents[selectedAgent].prompt_visible) {
+            if (ui_touch_auto_edit(touch)) {
+                auto_edit = !auto_edit;
+                ui_set_auto_edit(auto_edit);
+                printf("Auto-edit: %s\n", auto_edit ? "ON" : "OFF");
+            } else if (agents[selectedAgent].prompt_visible) {
                 if (ui_touch_yes(touch)) {
                     printf("Sending yes\n");
                     network_send_action(agents[selectedAgent].name, "yes");

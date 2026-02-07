@@ -40,6 +40,14 @@ static C2D_TextBuf textBuf;
 #define DETAIL_W      300
 #define DETAIL_H      68
 
+// Auto-edit toggle button
+#define AUTO_EDIT_X   10
+#define AUTO_EDIT_Y   165
+#define AUTO_EDIT_W   300
+#define AUTO_EDIT_H   30
+
+static bool auto_edit_enabled = false;
+
 void ui_init(void) {
     clrBackground = C2D_Color32(0x2a, 0x2a, 0x4a, 0xFF);
     clrWhite = C2D_Color32(0xFF, 0xFF, 0xFF, 0xFF);
@@ -142,13 +150,28 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count, int
         C2D_DrawText(&txtCtx, C2D_WithColor, 10, y + 22, 0, 0.4f, 0.4f, clrGray);
         draw_bar(100, y + 23, 210, 10, agent->context_percent, context_color(agent->context_percent));
 
-        // Message
-        C2D_Text txtMsg;
-        char msgBuf[64];
-        snprintf(msgBuf, sizeof(msgBuf), "%.50s", agent->message);
-        C2D_TextParse(&txtMsg, textBuf, msgBuf);
-        C2D_TextOptimize(&txtMsg);
-        C2D_DrawText(&txtMsg, C2D_WithColor, 10, y + 40, 0, 0.45f, 0.45f, clrGray);
+        // Tool info or message below context bar
+        if (agent->prompt_tool_type[0] != '\0') {
+            // Show tool type in yellow
+            C2D_Text txtTool;
+            char toolBuf[80];
+            if (agent->prompt_tool_detail[0] != '\0') {
+                snprintf(toolBuf, sizeof(toolBuf), "%.30s: %.40s", agent->prompt_tool_type, agent->prompt_tool_detail);
+            } else {
+                snprintf(toolBuf, sizeof(toolBuf), "%.70s", agent->prompt_tool_type);
+            }
+            C2D_TextParse(&txtTool, textBuf, toolBuf);
+            C2D_TextOptimize(&txtTool);
+            C2D_DrawText(&txtTool, C2D_WithColor, 10, y + 38, 0, 0.4f, 0.4f, clrYellow);
+        } else {
+            // Fallback: show message
+            C2D_Text txtMsg;
+            char msgBuf[64];
+            snprintf(msgBuf, sizeof(msgBuf), "%.50s", agent->message);
+            C2D_TextParse(&txtMsg, textBuf, msgBuf);
+            C2D_TextOptimize(&txtMsg);
+            C2D_DrawText(&txtMsg, C2D_WithColor, 10, y + 40, 0, 0.45f, 0.45f, clrGray);
+        }
 
         // Separator line
         C2D_DrawRectSolid(0, y + row_height - 5, 0, TOP_WIDTH, 1, C2D_Color32(0x33, 0x33, 0x33, 0xFF));
@@ -265,6 +288,15 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool conn
         C2D_DrawText(&txtMsg, C2D_WithColor, DETAIL_X + 5, DETAIL_Y + 25, 0, 0.45f, 0.45f, clrGray);
     }
 
+    // Auto-edit toggle button
+    u32 aeColor = auto_edit_enabled ? clrGreen : clrDarkGray;
+    C2D_DrawRectSolid(AUTO_EDIT_X, AUTO_EDIT_Y, 0, AUTO_EDIT_W, AUTO_EDIT_H, aeColor);
+    C2D_Text txtAutoEdit;
+    const char* aeLabel = auto_edit_enabled ? "AUTO-ACCEPT EDITS: ON" : "AUTO-ACCEPT EDITS: OFF";
+    C2D_TextParse(&txtAutoEdit, textBuf, aeLabel);
+    C2D_TextOptimize(&txtAutoEdit);
+    C2D_DrawText(&txtAutoEdit, C2D_WithColor, AUTO_EDIT_X + 55, AUTO_EDIT_Y + 7, 0, 0.55f, 0.55f, clrWhite);
+
     // Agent tabs at bottom
     float tabWidth = BOT_WIDTH / 4.0f;
     const char* agentNames[] = {"Claude", "Codex", "Gemini", "Cursor"};
@@ -293,4 +325,13 @@ int ui_touch_always(touchPosition touch) {
 int ui_touch_no(touchPosition touch) {
     return (touch.px >= BTN_NO_X && touch.px <= BTN_NO_X + BTN_W &&
             touch.py >= BTN_Y && touch.py <= BTN_Y + BTN_H);
+}
+
+int ui_touch_auto_edit(touchPosition touch) {
+    return (touch.px >= AUTO_EDIT_X && touch.px <= AUTO_EDIT_X + AUTO_EDIT_W &&
+            touch.py >= AUTO_EDIT_Y && touch.py <= AUTO_EDIT_Y + AUTO_EDIT_H);
+}
+
+void ui_set_auto_edit(bool enabled) {
+    auto_edit_enabled = enabled;
 }
