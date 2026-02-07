@@ -2,6 +2,9 @@
   "name": "raids-companion-server",
   "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "raids": "./src/index.ts"
+  },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
