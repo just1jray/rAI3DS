@@ -42,11 +42,17 @@ if [ $# -gt 0 ]; then
   CLAUDE_CMD="claude $*"
 fi
 
-# Create or attach tmux session
-if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
-  echo "[raids] Attaching to existing session '$TMUX_SESSION'..."
-  tmux attach-session -t "$TMUX_SESSION"
+# Create the tmux session if it doesn't exist
+if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+  echo "[raids] Creating tmux session '$TMUX_SESSION' with Claude Code..."
+  tmux new-session -d -s "$TMUX_SESSION" "$CLAUDE_CMD"
+fi
+
+# Attach or switch to the session
+if [ -n "${TMUX:-}" ]; then
+  echo "[raids] Switching to session '$TMUX_SESSION'..."
+  tmux switch-client -t "$TMUX_SESSION"
 else
-  echo "[raids] Starting Claude Code in tmux session '$TMUX_SESSION'..."
-  tmux new-session -s "$TMUX_SESSION" "$CLAUDE_CMD"
+  echo "[raids] Attaching to session '$TMUX_SESSION'..."
+  tmux attach-session -t "$TMUX_SESSION"
 fi
