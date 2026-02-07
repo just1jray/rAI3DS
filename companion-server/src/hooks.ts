@@ -5,10 +5,15 @@ import { join } from "path";
 
 const CLAUDE_SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
 
+interface HookEntry {
+  matcher: { tools: string[] };
+  hooks: Array<{ type: "command"; command: string }>;
+}
+
 interface ClaudeSettings {
   hooks?: {
-    PreToolUse?: Array<{ matcher: string; command: string }>;
-    PostToolUse?: Array<{ matcher: string; command: string }>;
+    PreToolUse?: HookEntry[];
+    PostToolUse?: HookEntry[];
   };
   [key: string]: unknown;
 }
@@ -16,14 +21,24 @@ interface ClaudeSettings {
 const RAIDS_HOOKS = {
   PreToolUse: [
     {
-      matcher: "*",
-      command: `curl -s -X POST http://localhost:3333/hook/pre-tool -H 'Content-Type: application/json' -d '{"tool":"$CLAUDE_TOOL_NAME"}'`,
+      matcher: { tools: ["*"] },
+      hooks: [
+        {
+          type: "command" as const,
+          command: `curl -s -X POST http://localhost:3333/hook/pre-tool -H 'Content-Type: application/json' -d '{"tool":"$CLAUDE_TOOL_NAME"}'`,
+        },
+      ],
     },
   ],
   PostToolUse: [
     {
-      matcher: "*",
-      command: `curl -s -X POST http://localhost:3333/hook/post-tool -H 'Content-Type: application/json' -d '{"tool":"$CLAUDE_TOOL_NAME"}'`,
+      matcher: { tools: ["*"] },
+      hooks: [
+        {
+          type: "command" as const,
+          command: `curl -s -X POST http://localhost:3333/hook/post-tool -H 'Content-Type: application/json' -d '{"tool":"$CLAUDE_TOOL_NAME"}'`,
+        },
+      ],
     },
   ],
 };
@@ -54,13 +69,13 @@ export async function installHooks(): Promise<boolean> {
   settings.hooks = settings.hooks || {};
   settings.hooks.PreToolUse = [
     ...(settings.hooks.PreToolUse || []).filter(
-      (h) => !h.command.includes("localhost:3333")
+      (h) => !h.hooks?.some((cmd) => cmd.command.includes("localhost:3333"))
     ),
     ...RAIDS_HOOKS.PreToolUse,
   ];
   settings.hooks.PostToolUse = [
     ...(settings.hooks.PostToolUse || []).filter(
-      (h) => !h.command.includes("localhost:3333")
+      (h) => !h.hooks?.some((cmd) => cmd.command.includes("localhost:3333"))
     ),
     ...RAIDS_HOOKS.PostToolUse,
   ];
@@ -91,10 +106,10 @@ export async function uninstallHooks(): Promise<boolean> {
 
     if (settings.hooks) {
       settings.hooks.PreToolUse = (settings.hooks.PreToolUse || []).filter(
-        (h) => !h.command.includes("localhost:3333")
+        (h) => !h.hooks?.some((cmd) => cmd.command.includes("localhost:3333"))
       );
       settings.hooks.PostToolUse = (settings.hooks.PostToolUse || []).filter(
-        (h) => !h.command.includes("localhost:3333")
+        (h) => !h.hooks?.some((cmd) => cmd.command.includes("localhost:3333"))
       );
     }
 
