@@ -10,6 +10,7 @@ export interface AgentStatus {
   message: string;
   pendingCommand?: string;
   lastUpdate: number;
+  contextPercent: number; // 0-100
 }
 
 // Hook payloads from Claude Code
@@ -32,6 +33,7 @@ export interface AgentStatusMessage {
   progress: number;
   message: string;
   pendingCommand?: string;
+  contextPercent?: number;
 }
 
 // Messages from 3DS

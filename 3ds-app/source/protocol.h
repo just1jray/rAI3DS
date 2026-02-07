@@ -15,6 +15,7 @@ typedef struct {
     int progress;  // 0-100, -1 for indeterminate
     char message[128];
     char pending_command[256];
+    int context_percent;  // 0-100
 } Agent;
 
 #define MAX_AGENTS 4

@@ -68,17 +68,14 @@ static const char* state_to_string(AgentState state) {
     }
 }
 
-static void draw_progress_bar(float x, float y, float w, float h, int progress, u32 color) {
+static void draw_bar(float x, float y, float w, float h, int percent, u32 color) {
     // Background
     C2D_DrawRectSolid(x, y, 0, w, h, C2D_Color32(0x33, 0x33, 0x33, 0xFF));
 
-    // Progress fill
-    if (progress >= 0 && progress <= 100) {
-        float fillW = (w * progress) / 100.0f;
+    // Fill
+    if (percent > 0 && percent <= 100) {
+        float fillW = (w * percent) / 100.0f;
         C2D_DrawRectSolid(x, y, 0, fillW, h, color);
-    } else {
-        // Indeterminate: pulse effect (simplified: just show 50%)
-        C2D_DrawRectSolid(x, y, 0, w * 0.5f, h, color);
     }
 
     // Border
@@ -86,6 +83,12 @@ static void draw_progress_bar(float x, float y, float w, float h, int progress, 
     C2D_DrawRectSolid(x, y + h - 2, 0, w, 2, clrWhite);
     C2D_DrawRectSolid(x, y, 0, 2, h, clrWhite);
     C2D_DrawRectSolid(x + w - 2, y, 0, 2, h, clrWhite);
+}
+
+static u32 context_color(int percent) {
+    if (percent > 80) return C2D_Color32(0xF4, 0x43, 0x36, 0xFF);  // red
+    if (percent > 50) return C2D_Color32(0xFF, 0xC1, 0x07, 0xFF);  // yellow
+    return C2D_Color32(0x4C, 0xAF, 0x50, 0xFF);                    // green
 }
 
 void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count, int selected) {
@@ -121,8 +124,14 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count, int
         C2D_TextOptimize(&txtState);
         C2D_DrawText(&txtState, C2D_WithColor, 320, y + 5, 0, 0.5f, 0.5f, stateColor);
 
-        // Progress bar
-        draw_progress_bar(10, y + 25, 300, 12, agent->progress, stateColor);
+        // Context bar
+        char ctxLabel[32];
+        snprintf(ctxLabel, sizeof(ctxLabel), "Context: %d%%", agent->context_percent);
+        C2D_Text txtCtx;
+        C2D_TextParse(&txtCtx, textBuf, ctxLabel);
+        C2D_TextOptimize(&txtCtx);
+        C2D_DrawText(&txtCtx, C2D_WithColor, 10, y + 22, 0, 0.4f, 0.4f, clrGray);
+        draw_bar(100, y + 23, 210, 10, agent->context_percent, context_color(agent->context_percent));
 
         // Message
         C2D_Text txtMsg;

@@ -2,6 +2,7 @@ import { startHttpServer, setBroadcast } from "./server";
 import { startWebSocketServer, broadcast, setClaudeAdapter } from "./websocket";
 import { createClaudeAdapter } from "./adapters/claude";
 import { installHooks, uninstallHooks } from "./hooks";
+import { startContextTracker } from "./context";
 
 const HELP = `
 rAI3DS Companion Server
@@ -59,6 +60,7 @@ async function main() {
   startHttpServer();
   startWebSocketServer();
   setBroadcast(broadcast);
+  startContextTracker(10_000);
 
   console.log("Server ready. Waiting for hooks and 3DS connections...");
 }

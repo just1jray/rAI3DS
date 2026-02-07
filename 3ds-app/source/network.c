@@ -170,6 +170,9 @@ static void parse_agent_status(const char* json, Agent* agents, int* agent_count
         agents[idx].pending_command[0] = '\0';
     }
 
+    cJSON* context = cJSON_GetObjectItem(root, "contextPercent");
+    agents[idx].context_percent = (context && cJSON_IsNumber(context)) ? context->valueint : 0;
+
     cJSON_Delete(root);
 }
 
