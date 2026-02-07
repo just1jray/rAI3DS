@@ -3,6 +3,7 @@ import type { AgentStatus, DSMessage, AgentStatusMessage } from "./types";
 import type { ClaudeAdapter } from "./adapters/claude";
 
 const WS_PORT = 3334;
+const HOST = "0.0.0.0"; // Listen on all interfaces so 3DS on LAN can connect
 
 let wss: WebSocketServer;
 const clients: Set<WebSocket> = new Set();
@@ -13,7 +14,7 @@ export function setClaudeAdapter(adapter: ClaudeAdapter) {
 }
 
 export function startWebSocketServer() {
-  wss = new WebSocketServer({ port: WS_PORT });
+  wss = new WebSocketServer({ host: HOST, port: WS_PORT });
 
   wss.on("connection", (ws) => {
     console.log("[ws] 3DS client connected");
@@ -39,7 +40,7 @@ export function startWebSocketServer() {
     });
   });
 
-  console.log(`WebSocket server listening on ws://localhost:${WS_PORT}`);
+  console.log(`WebSocket server listening on ws://${HOST}:${WS_PORT}`);
   return wss;
 }
 

@@ -2,6 +2,7 @@
 #include <citro2d.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include "ui.h"
 #include "protocol.h"
 #include "network.h"
@@ -14,10 +15,14 @@ static Agent agents[MAX_AGENTS];
 static int agent_count = 0;
 static int selectedAgent = 0;
 static int reconnect_timer = 0;
+static bool network_ready = false;       // network_init() succeeded
+static bool first_connection_done = false;  // defer first connect until after first frame (avoids blocking on real 3DS)
 
 int main(int argc, char* argv[]) {
     // Initialize services
     gfxInitDefault();
+    aptSetHomeAllowed(true);  // Allow HOME button to return to system menu
+    gfxSet3D(false);  // 2D app: disable parallax on real hardware
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
     C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
     C2D_Prepare();
@@ -29,12 +34,10 @@ int main(int argc, char* argv[]) {
     // Initialize UI and network
     ui_init();
 
-    if (!network_init()) {
+    network_ready = network_init();
+    if (!network_ready)
         printf("Network init failed!\n");
-    } else {
-        printf("Connecting to %s:%d...\n", SERVER_HOST, SERVER_PORT);
-        network_connect(SERVER_HOST, SERVER_PORT);
-    }
+    /* First connection is done after first frame so we don't block gfx on real 3DS (DNS/connect can hang). */
 
     // Initialize default agent
     strcpy(agents[0].name, "CLAUDE");
@@ -88,13 +91,20 @@ int main(int argc, char* argv[]) {
             selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
         }
 
-        // Render
+        // Render (always draw first so real 3DS shows UI before any blocking connect)
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
         ui_render_top(topScreen, agents, agent_count, selectedAgent);
         ui_render_bottom(bottomScreen,
             agent_count > 0 ? &agents[selectedAgent] : NULL,
             network_is_connected());
         C3D_FrameEnd(0);
+
+        // Deferred first connection: after first frame so hardware doesn't block before any draw
+        if (network_ready && !first_connection_done) {
+            first_connection_done = true;
+            printf("Connecting to %s:%d...\n", SERVER_HOST, SERVER_PORT);
+            network_connect(SERVER_HOST, SERVER_PORT);
+        }
     }
 
     // Cleanup

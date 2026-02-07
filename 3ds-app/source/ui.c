@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "config.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -32,7 +33,7 @@ static C2D_TextBuf textBuf;
 #define BTN_DENY_H 80
 
 void ui_init(void) {
-    clrBackground = C2D_Color32(0x1a, 0x1a, 0x2e, 0xFF);
+    clrBackground = C2D_Color32(0x2a, 0x2a, 0x4a, 0xFF);  // Slightly brighter for physical 3DS screens
     clrWhite = C2D_Color32(0xFF, 0xFF, 0xFF, 0xFF);
     clrGray = C2D_Color32(0x88, 0x88, 0x88, 0xFF);
     clrGreen = C2D_Color32(0x4C, 0xAF, 0x50, 0xFF);
@@ -149,12 +150,29 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool conn
 
     C2D_TextBufClear(textBuf);
 
-    // Connection status
+    // Connection status (show target so user can verify IP matches PC)
     if (!connected) {
         C2D_Text txtDisc;
         C2D_TextParse(&txtDisc, textBuf, "Connecting...");
         C2D_TextOptimize(&txtDisc);
-        C2D_DrawText(&txtDisc, C2D_WithColor, 110, 110, 0, 0.8f, 0.8f, clrYellow);
+        C2D_DrawText(&txtDisc, C2D_WithColor, 90, 95, 0, 0.8f, 0.8f, clrYellow);
+
+        char addrBuf[64];
+        snprintf(addrBuf, sizeof(addrBuf), "%s:%d", SERVER_HOST, SERVER_PORT);
+        C2D_Text txtAddr;
+        C2D_TextParse(&txtAddr, textBuf, addrBuf);
+        C2D_TextOptimize(&txtAddr);
+        C2D_DrawText(&txtAddr, C2D_WithColor, 40, 120, 0, 0.5f, 0.5f, clrGray);
+
+        C2D_Text txtWait;
+        C2D_TextParse(&txtWait, textBuf, "First connect may take 30s");
+        C2D_TextOptimize(&txtWait);
+        C2D_DrawText(&txtWait, C2D_WithColor, 55, 145, 0, 0.45f, 0.45f, clrGray);
+
+        C2D_Text txtExit;
+        C2D_TextParse(&txtExit, textBuf, "START or HOME to exit");
+        C2D_TextOptimize(&txtExit);
+        C2D_DrawText(&txtExit, C2D_WithColor, 70, 180, 0, 0.5f, 0.5f, clrGray);
         return;
     }
 

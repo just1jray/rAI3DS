@@ -28,8 +28,11 @@ function updateState(updates: Partial<AgentStatus>) {
 }
 
 // HTTP server using Bun's native server
+const HOST = "0.0.0.0"; // Listen on all interfaces so 3DS on LAN can connect
+
 export function startHttpServer() {
   const server = Bun.serve({
+    hostname: HOST,
     port: HTTP_PORT,
     async fetch(req) {
       const url = new URL(req.url);
@@ -99,6 +102,6 @@ export function startHttpServer() {
     },
   });
 
-  console.log(`HTTP server listening on http://localhost:${HTTP_PORT}`);
+  console.log(`HTTP server listening on http://${HOST}:${HTTP_PORT}`);
   return server;
 }
