@@ -1,10 +1,16 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { AgentStatus, DSMessage, AgentStatusMessage } from "./types";
+import type { ClaudeAdapter } from "./adapters/claude";
 
 const WS_PORT = 3334;
 
 let wss: WebSocketServer;
 const clients: Set<WebSocket> = new Set();
+let claudeAdapter: ClaudeAdapter | null = null;
+
+export function setClaudeAdapter(adapter: ClaudeAdapter) {
+  claudeAdapter = adapter;
+}
 
 export function startWebSocketServer() {
   wss = new WebSocketServer({ port: WS_PORT });
@@ -37,15 +43,17 @@ export function startWebSocketServer() {
   return wss;
 }
 
-function handleMessage(msg: DSMessage) {
+async function handleMessage(msg: DSMessage) {
   console.log("[ws] Received:", msg);
 
-  if (msg.type === "action") {
-    // TODO: Send to Claude adapter
-    console.log(`[ws] Action: ${msg.action} for ${msg.agent}`);
-  } else if (msg.type === "command") {
-    // TODO: Send to Claude adapter
-    console.log(`[ws] Command: ${msg.command} for ${msg.agent}`);
+  if (msg.type === "action" && msg.agent === "claude" && claudeAdapter) {
+    if (msg.action === "approve") {
+      await claudeAdapter.sendApproval();
+    } else if (msg.action === "deny") {
+      await claudeAdapter.sendDenial();
+    }
+  } else if (msg.type === "command" && msg.agent === "claude" && claudeAdapter) {
+    await claudeAdapter.sendInput(msg.command);
   }
 }
 
