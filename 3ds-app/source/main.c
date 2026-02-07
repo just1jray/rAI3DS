@@ -110,7 +110,7 @@ int main(int argc, char* argv[]) {
 
         // Render (always draw first so real 3DS shows UI before any blocking connect)
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-        ui_render_top(topScreen, agents, agent_count, selectedAgent);
+        ui_render_top(topScreen, agents, agent_count, selectedAgent, network_is_connected());
         ui_render_bottom(bottomScreen,
             agent_count > 0 ? &agents[selectedAgent] : NULL,
             network_is_connected());

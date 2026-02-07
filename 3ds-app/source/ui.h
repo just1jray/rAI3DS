@@ -11,7 +11,7 @@ void ui_init(void);
 void ui_exit(void);
 
 // Render top screen with agent dashboard
-void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count, int selected);
+void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count, int selected, bool connected);
 
 // Render bottom screen with touch controls
 void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool connected);
