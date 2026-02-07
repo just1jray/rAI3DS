@@ -2,11 +2,18 @@
 #include <citro2d.h>
 #include <string.h>
 #include <stdio.h>
+#include "ui.h"
+#include "protocol.h"
 
-#define TOP_SCREEN_WIDTH 400
-#define TOP_SCREEN_HEIGHT 240
-#define BOTTOM_SCREEN_WIDTH 320
-#define BOTTOM_SCREEN_HEIGHT 240
+// Mock agents for testing UI
+static Agent agents[MAX_AGENTS] = {
+    { "CLAUDE CODE", STATE_WAITING, 75, "Waiting for approval", "rm -rf node_modules" },
+    { "CODEX", STATE_WORKING, 50, "Running tests...", "" },
+    { "GEMINI", STATE_IDLE, -1, "Ready", "" },
+    { "CURSOR", STATE_DONE, 100, "Task completed!", "" }
+};
+static int selectedAgent = 0;
+static bool connected = true;  // Mock connected state
 
 int main(int argc, char* argv[]) {
     // Initialize services
@@ -19,19 +26,8 @@ int main(int argc, char* argv[]) {
     C3D_RenderTarget* topScreen = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
     C3D_RenderTarget* bottomScreen = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
 
-    // Colors
-    u32 clrClear = C2D_Color32(0x1a, 0x1a, 0x2e, 0xFF);  // Dark blue background
-    u32 clrWhite = C2D_Color32(0xFF, 0xFF, 0xFF, 0xFF);
-
-    // Text buffer
-    C2D_TextBuf textBuf = C2D_TextBufNew(256);
-    C2D_Text txtTitle, txtStatus;
-
-    // Prepare text
-    C2D_TextParse(&txtTitle, textBuf, "rAI3DS v0.1.0");
-    C2D_TextParse(&txtStatus, textBuf, "Press START to exit");
-    C2D_TextOptimize(&txtTitle);
-    C2D_TextOptimize(&txtStatus);
+    // Initialize UI
+    ui_init();
 
     // Main loop
     while (aptMainLoop()) {
@@ -41,24 +37,39 @@ int main(int argc, char* argv[]) {
         if (kDown & KEY_START)
             break;
 
-        // Render top screen
+        // Handle touch
+        if (kDown & KEY_TOUCH) {
+            touchPosition touch;
+            hidTouchRead(&touch);
+
+            if (ui_touch_approve(touch)) {
+                printf("Approve pressed!\n");
+                agents[selectedAgent].state = STATE_WORKING;
+                strcpy(agents[selectedAgent].message, "Approved - executing...");
+            } else if (ui_touch_deny(touch)) {
+                printf("Deny pressed!\n");
+                agents[selectedAgent].state = STATE_IDLE;
+                strcpy(agents[selectedAgent].message, "Denied by user");
+            }
+        }
+
+        // D-pad to switch agents
+        if (kDown & KEY_DOWN) {
+            selectedAgent = (selectedAgent + 1) % MAX_AGENTS;
+        }
+        if (kDown & KEY_UP) {
+            selectedAgent = (selectedAgent - 1 + MAX_AGENTS) % MAX_AGENTS;
+        }
+
+        // Render
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-        C2D_TargetClear(topScreen, clrClear);
-        C2D_SceneBegin(topScreen);
-
-        C2D_DrawText(&txtTitle, C2D_WithColor, 150.0f, 100.0f, 0.0f, 1.0f, 1.0f, clrWhite);
-
-        // Render bottom screen
-        C2D_TargetClear(bottomScreen, clrClear);
-        C2D_SceneBegin(bottomScreen);
-
-        C2D_DrawText(&txtStatus, C2D_WithColor, 80.0f, 110.0f, 0.0f, 0.8f, 0.8f, clrWhite);
-
+        ui_render_top(topScreen, agents, MAX_AGENTS, selectedAgent);
+        ui_render_bottom(bottomScreen, &agents[selectedAgent], connected);
         C3D_FrameEnd(0);
     }
 
     // Cleanup
-    C2D_TextBufDelete(textBuf);
+    ui_exit();
     C2D_Fini();
     C3D_Fini();
     gfxExit();
