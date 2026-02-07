@@ -1,0 +1,18 @@
+services:
+  companion-server:
+    build: ./companion-server
+    ports:
+      - "3333:3333"  # HTTP (hooks)
+      - "3334:3334"  # WebSocket (3DS)
+    volumes:
+      - ./companion-server/src:/app/src
+      - ~/.claude:/root/.claude  # For hook installation
+    environment:
+      - NODE_ENV=development
+
+  3ds-build:
+    image: devkitpro/devkitarm:latest
+    volumes:
+      - ./3ds-app:/app
+    working_dir: /app
+    command: make

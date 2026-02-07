@@ -1,0 +1,24 @@
+# Node
+node_modules/
+*.log
+
+# Bun
+bun.lockb
+
+# 3DS build artifacts
+3ds-app/build/
+3ds-app/*.3dsx
+3ds-app/*.elf
+3ds-app/*.smdh
+3ds-app/*.cia
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
