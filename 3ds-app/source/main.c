@@ -70,14 +70,10 @@ int main(int argc, char* argv[]) {
             reconnect_timer = 0;
         }
 
-        // Auto-accept edits: if prompt is for Edit/Write and toggle is on, auto-approve
-        if (auto_edit && agents[selectedAgent].prompt_visible) {
-            const char* tt = agents[selectedAgent].prompt_tool_type;
-            if (strcasecmp(tt, "Edit") == 0 || strcasecmp(tt, "Write") == 0 ||
-                strcasecmp(tt, "NotebookEdit") == 0) {
-                printf("Auto-accepting edit: %s\n", tt);
-                network_send_action(agents[selectedAgent].name, "yes");
-            }
+        // Sync auto-edit state from server broadcasts
+        if (network_get_auto_edit() != auto_edit) {
+            auto_edit = network_get_auto_edit();
+            ui_set_auto_edit(auto_edit);
         }
 
         // Handle touch
@@ -88,6 +84,7 @@ int main(int argc, char* argv[]) {
             if (ui_touch_auto_edit(touch)) {
                 auto_edit = !auto_edit;
                 ui_set_auto_edit(auto_edit);
+                network_send_config(agents[selectedAgent].name, auto_edit);
                 printf("Auto-edit: %s\n", auto_edit ? "ON" : "OFF");
             } else if (agents[selectedAgent].prompt_visible) {
                 if (ui_touch_yes(touch)) {

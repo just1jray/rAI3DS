@@ -21,6 +21,7 @@ static bool connected = false;
 static bool ws_handshake_done = false;
 static char recv_buf[RECV_BUF_SIZE];
 static int recv_buf_len = 0;
+static bool server_auto_edit = false;
 
 // Simple WebSocket key (fixed for simplicity)
 static const char* WS_KEY = "dGhlIHNhbXBsZSBub25jZQ==";
@@ -201,6 +202,12 @@ static void parse_agent_status(const char* json, Agent* agents, int* agent_count
         agents[idx].prompt_description[0] = '\0';
     }
 
+    // Sync auto-edit state from server
+    cJSON* autoEdit = cJSON_GetObjectItem(root, "autoEdit");
+    if (autoEdit && cJSON_IsBool(autoEdit)) {
+        server_auto_edit = cJSON_IsTrue(autoEdit);
+    }
+
     cJSON_Delete(root);
 }
 
@@ -327,4 +334,16 @@ void network_send_command(const char* agent, const char* command) {
         "{\"type\":\"command\",\"agent\":\"%s\",\"command\":\"%s\"}",
         agent, command);
     send_ws_frame(json);
+}
+
+void network_send_config(const char* agent, bool auto_edit) {
+    char json[256];
+    snprintf(json, sizeof(json),
+        "{\"type\":\"config\",\"agent\":\"%s\",\"autoEdit\":%s}",
+        agent, auto_edit ? "true" : "false");
+    send_ws_frame(json);
+}
+
+bool network_get_auto_edit(void) {
+    return server_auto_edit;
 }

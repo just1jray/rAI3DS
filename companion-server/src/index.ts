@@ -1,5 +1,4 @@
-import { startHttpServer, setBroadcast, updateState } from "./server";
-import { startWebSocketServer, broadcast, setClaudeAdapter } from "./websocket";
+import { startServer, setClaudeAdapter, updateState } from "./server";
 import { createClaudeAdapter } from "./adapters/claude";
 import { installHooks, uninstallHooks } from "./hooks";
 import { startContextTracker } from "./context";
@@ -52,21 +51,21 @@ async function main() {
       process.exit(1);
   }
 
-  // Start servers
+  // Start server (HTTP + WebSocket on port 3333)
   console.log("rAI3DS Companion Server starting...");
 
   const claudeAdapter = createClaudeAdapter();
   setClaudeAdapter(claudeAdapter);
 
-  startHttpServer();
-  startWebSocketServer();
-  setBroadcast(broadcast);
+  startServer();
   startContextTracker(10_000);
 
   // Start tmux screen scraper to detect permission prompts
   startScraper({
     onPromptAppeared(prompt) {
-      console.log(`[scraper] Prompt appeared: ${prompt.toolType} — ${prompt.toolDetail}`);
+      console.log(
+        `[scraper] Prompt appeared: ${prompt.toolType} — ${prompt.toolDetail}`
+      );
       updateState({
         state: "waiting",
         message: `${prompt.toolType}: ${prompt.toolDetail}`,

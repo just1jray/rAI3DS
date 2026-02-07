@@ -38,6 +38,7 @@ export interface AgentStatusMessage {
   promptToolType?: string;
   promptToolDetail?: string;
   promptDescription?: string;
+  autoEdit?: boolean;
 }
 
 // Messages from 3DS
@@ -53,4 +54,10 @@ export interface UserCommand {
   command: string;
 }
 
-export type DSMessage = UserAction | UserCommand;
+export interface UserConfig {
+  type: "config";
+  agent: AgentName;
+  autoEdit?: boolean;
+}
+
+export type DSMessage = UserAction | UserCommand | UserConfig;

@@ -10,11 +10,8 @@
     "start": "bun run src/index.ts",
     "test": "bun test"
   },
-  "dependencies": {
-    "ws": "^8.16.0"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/ws": "^8.5.10"
+    "@types/bun": "latest"
   }
 }
