@@ -31,4 +31,7 @@ int ui_touch_auto_edit(touchPosition touch);
 // Set auto-edit state for rendering
 void ui_set_auto_edit(bool enabled);
 
+// Scroll tool detail up/down (direction: -1 = up, +1 = down)
+void ui_scroll_detail(int direction);
+
 #endif // UI_H

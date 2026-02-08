@@ -18,6 +18,7 @@ static int reconnect_timer = 0;
 static bool network_ready = false;       // network_init() succeeded
 static bool first_connection_done = false;  // defer first connect until after first frame (avoids blocking on real 3DS)
 static bool auto_edit = false;           // auto-accept Edit/Write tools
+static int scroll_cooldown = 0;          // frame counter for circle pad debounce
 
 int main(int argc, char* argv[]) {
     // Initialize services
@@ -100,7 +101,29 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // D-pad to switch agents
+        // Circle pad for scrolling tool detail (debounced)
+        if (scroll_cooldown > 0) scroll_cooldown--;
+        circlePosition cpad;
+        hidCircleRead(&cpad);
+        if (scroll_cooldown == 0) {
+            if (cpad.dy > 40) {
+                ui_scroll_detail(-1);  // stick up = scroll up
+                scroll_cooldown = 8;   // ~8 frames between scrolls
+            } else if (cpad.dy < -40) {
+                ui_scroll_detail(1);   // stick down = scroll down
+                scroll_cooldown = 8;
+            }
+        }
+
+        // D-pad left/right for precise single-line scrolling
+        if (kDown & KEY_LEFT) {
+            ui_scroll_detail(-1);
+        }
+        if (kDown & KEY_RIGHT) {
+            ui_scroll_detail(1);
+        }
+
+        // D-pad up/down to switch agents
         if (kDown & KEY_DOWN && agent_count > 0) {
             selectedAgent = (selectedAgent + 1) % agent_count;
         }

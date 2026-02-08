@@ -7,6 +7,9 @@ import type {
 } from "./types";
 import type { ClaudeAdapter } from "./adapters/claude";
 import type { ServerWebSocket } from "bun";
+import { $ } from "bun";
+
+const TMUX_SESSION = "claude-raids";
 
 
 const PORT = 3333;
@@ -116,6 +119,8 @@ async function handleWsMessage(msg: DSMessage) {
     if (msg.autoEdit !== undefined) {
       autoEditEnabled = msg.autoEdit;
       console.log(`[ws] Auto-edit set to: ${autoEditEnabled}`);
+      const label = autoEditEnabled ? "ON" : "OFF";
+      $`tmux display-message -t ${TMUX_SESSION} "[rAI3DS] Auto-edit: ${label}"`.quiet().catch(() => {});
       broadcastState();
     }
   }
@@ -152,15 +157,42 @@ export function startServer() {
       if (path === "/hook/pre-tool" && req.method === "POST") {
         try {
           const body = (await req.json()) as PreToolHook;
-          console.log(`[hook] pre-tool: ${body.tool}`);
+          const toolName = body.tool_name || body.tool || "Unknown";
+          console.log(`[hook] pre-tool: ${toolName}`);
+
+          // Extract the most useful detail from tool_input
+          let toolDetail = "";
+          if (body.tool_input) {
+            if (typeof body.tool_input.command === "string") {
+              toolDetail = body.tool_input.command;           // Bash
+            } else if (typeof body.tool_input.file_path === "string") {
+              toolDetail = body.tool_input.file_path;         // Read/Edit/Write
+            } else if (typeof body.tool_input.pattern === "string") {
+              toolDetail = body.tool_input.pattern;           // Grep/Glob
+            } else if (typeof body.tool_input.query === "string") {
+              toolDetail = body.tool_input.query;             // WebSearch
+            } else if (typeof body.tool_input.url === "string") {
+              toolDetail = body.tool_input.url;               // WebFetch
+            } else {
+              // Fallback: stringify first key's value, truncated
+              const firstVal = Object.values(body.tool_input)[0];
+              if (typeof firstVal === "string") toolDetail = firstVal;
+            }
+          }
+
+          // Extract description if available
+          let description = "";
+          if (body.tool_input && typeof body.tool_input.description === "string") {
+            description = body.tool_input.description;
+          }
 
           updateState({
             state: "working",
             progress: -1,
-            message: `Tool: ${body.tool}`,
-            promptToolType: undefined,
-            promptToolDetail: undefined,
-            promptDescription: undefined,
+            message: `Tool: ${toolName}`,
+            promptToolType: toolName,
+            promptToolDetail: toolDetail,
+            promptDescription: description,
           });
 
           return Response.json({ action: "approve" });
@@ -173,12 +205,13 @@ export function startServer() {
       if (path === "/hook/post-tool" && req.method === "POST") {
         try {
           const body = (await req.json()) as PostToolHook;
-          console.log(`[hook] post-tool: ${body.tool}`);
+          const toolName = body.tool_name || body.tool || "Unknown";
+          console.log(`[hook] post-tool: ${toolName}`);
 
           updateState({
             state: body.error ? "error" : "idle",
             progress: -1,
-            message: body.error || `Done: ${body.tool}`,
+            message: body.error || `Done: ${toolName}`,
             promptToolType: undefined,
             promptToolDetail: undefined,
             promptDescription: undefined,

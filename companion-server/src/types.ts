@@ -17,12 +17,19 @@ export interface AgentStatus {
 
 // Hook payloads from Claude Code
 export interface PreToolHook {
-  tool: string;
-  input?: Record<string, unknown>;
+  session_id?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  // Legacy field from old hook format
+  tool?: string;
 }
 
 export interface PostToolHook {
-  tool: string;
+  session_id?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  // Legacy fields
+  tool?: string;
   output?: string;
   error?: string;
 }

@@ -59,6 +59,11 @@ static C2D_TextBuf textBuf;
 
 static bool auto_edit_enabled = false;
 
+// Scroll state for tool detail
+static int detail_scroll = 0;
+static int detail_total_lines = 0;
+static char last_tool_detail[256] = {0};
+
 void ui_init(void) {
     clrBase     = C2D_Color32(0x1e, 0x1e, 0x2e, 0xFF);
     clrMantle   = C2D_Color32(0x18, 0x18, 0x25, 0xFF);
@@ -128,7 +133,7 @@ static void draw_bar(float x, float y, float w, float h, int percent, u32 color)
     draw_border(x, y, w, h, clrSurface2);
 }
 
-#define WRAP_MAX_LINES 3
+#define WRAP_MAX_LINES 10
 #define WRAP_LINE_LEN  80
 
 static int wrap_text(const char* text, float scale, float max_width_px,
@@ -258,6 +263,13 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count, int
         C2D_DrawRectSolid(10, 140, 0, TOP_WIDTH - 20, 75, clrMantle);
         draw_border(10, 140, TOP_WIDTH - 20, 75, clrSurface1);
 
+        // Reset scroll when tool detail changes
+        if (strcmp(agent->prompt_tool_detail, last_tool_detail) != 0) {
+            strncpy(last_tool_detail, agent->prompt_tool_detail, sizeof(last_tool_detail) - 1);
+            last_tool_detail[sizeof(last_tool_detail) - 1] = '\0';
+            detail_scroll = 0;
+        }
+
         if (agent->prompt_tool_type[0] != '\0') {
             // "Current Tool" label
             C2D_Text txtToolLabel;
@@ -271,16 +283,25 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count, int
             C2D_TextOptimize(&txtToolType);
             C2D_DrawText(&txtToolType, C2D_WithColor, 20, 157, 0, 0.55f, 0.55f, clrPeach);
 
-            // Tool detail (word-wrapped, max 2 lines)
+            // Tool detail (word-wrapped, scrollable)
             if (agent->prompt_tool_detail[0] != '\0') {
                 char lines[WRAP_MAX_LINES][WRAP_LINE_LEN];
                 memset(lines, 0, sizeof(lines));
                 int nlines = wrap_text(agent->prompt_tool_detail, 0.43f, TOP_WIDTH - 50, lines);
-                for (int l = 0; l < nlines && l < 2; l++) {
+                detail_total_lines = nlines;
+                int visible = 2;
+                for (int l = 0; l < visible && (l + detail_scroll) < nlines; l++) {
                     C2D_Text txtLine;
-                    C2D_TextParse(&txtLine, textBuf, lines[l]);
+                    C2D_TextParse(&txtLine, textBuf, lines[l + detail_scroll]);
                     C2D_TextOptimize(&txtLine);
                     C2D_DrawText(&txtLine, C2D_WithColor, 20, 175 + l * 13, 0, 0.43f, 0.43f, clrText);
+                }
+                // Scroll indicator
+                if (detail_scroll + visible < nlines) {
+                    C2D_Text txtMore;
+                    C2D_TextParse(&txtMore, textBuf, "...");
+                    C2D_TextOptimize(&txtMore);
+                    C2D_DrawText(&txtMore, C2D_WithColor, 370, 200, 0, 0.4f, 0.4f, clrOverlay0);
                 }
             }
 
@@ -420,7 +441,7 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool conn
         return;
     }
 
-    bool prompt = selected_agent && selected_agent->prompt_visible;
+    bool prompt = selected_agent && selected_agent->state == STATE_WAITING;
 
     // Header label
     C2D_Text txtHeader;
@@ -482,17 +503,27 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool conn
         // Separator
         C2D_DrawRectSolid(DETAIL_X + 5, DETAIL_Y + 22, 0, DETAIL_W - 10, 1, clrSurface1);
 
-        // Tool detail (word-wrapped)
+        // Tool detail (word-wrapped, scrollable)
         if (selected_agent->prompt_tool_detail[0] != '\0') {
             char lines[WRAP_MAX_LINES][WRAP_LINE_LEN];
             memset(lines, 0, sizeof(lines));
             int nlines = wrap_text(selected_agent->prompt_tool_detail, 0.43f, DETAIL_W - 15, lines);
-            for (int l = 0; l < nlines && l < 2; l++) {
+            detail_total_lines = nlines;
+            int visible = 2;
+            for (int l = 0; l < visible && (l + detail_scroll) < nlines; l++) {
                 C2D_Text txtLine;
-                C2D_TextParse(&txtLine, textBuf, lines[l]);
+                C2D_TextParse(&txtLine, textBuf, lines[l + detail_scroll]);
                 C2D_TextOptimize(&txtLine);
                 C2D_DrawText(&txtLine, C2D_WithColor, DETAIL_X + 5, DETAIL_Y + 27 + l * 13, 0,
                              0.43f, 0.43f, clrText);
+            }
+            // Scroll indicator
+            if (detail_scroll + visible < nlines) {
+                C2D_Text txtMore;
+                C2D_TextParse(&txtMore, textBuf, "...");
+                C2D_TextOptimize(&txtMore);
+                C2D_DrawText(&txtMore, C2D_WithColor, DETAIL_X + DETAIL_W - 20, DETAIL_Y + DETAIL_H - 15, 0,
+                             0.4f, 0.4f, clrOverlay0);
             }
         }
 
@@ -564,4 +595,12 @@ int ui_touch_auto_edit(touchPosition touch) {
 
 void ui_set_auto_edit(bool enabled) {
     auto_edit_enabled = enabled;
+}
+
+void ui_scroll_detail(int direction) {
+    detail_scroll += direction;
+    if (detail_scroll < 0) detail_scroll = 0;
+    int max_scroll = detail_total_lines - 2;  // show 2 lines at a time
+    if (max_scroll < 0) max_scroll = 0;
+    if (detail_scroll > max_scroll) detail_scroll = max_scroll;
 }
