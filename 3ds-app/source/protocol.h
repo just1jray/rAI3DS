@@ -20,8 +20,8 @@ typedef struct {
     int context_percent;  // 0-100
     bool prompt_visible;
     char prompt_tool_type[64];
-    char prompt_tool_detail[256];
-    char prompt_description[128];
+    char prompt_tool_detail[1024];
+    char prompt_description[256];
 } Agent;
 
 #define MAX_AGENTS 4

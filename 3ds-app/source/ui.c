@@ -49,11 +49,11 @@ static C2D_TextBuf textBuf;
 #define DETAIL_Y      90
 #define DETAIL_X      10
 #define DETAIL_W      300
-#define DETAIL_H      68
+#define DETAIL_H      78
 
 // Auto-edit toggle button
 #define AUTO_EDIT_X   10
-#define AUTO_EDIT_Y   165
+#define AUTO_EDIT_Y   175
 #define AUTO_EDIT_W   300
 #define AUTO_EDIT_H   30
 
@@ -62,7 +62,7 @@ static bool auto_edit_enabled = false;
 // Scroll state for tool detail
 static int detail_scroll = 0;
 static int detail_total_lines = 0;
-static char last_tool_detail[256] = {0};
+static char last_tool_detail[1024] = {0};
 
 void ui_init(void) {
     clrBase     = C2D_Color32(0x1e, 0x1e, 0x2e, 0xFF);
@@ -133,7 +133,7 @@ static void draw_bar(float x, float y, float w, float h, int percent, u32 color)
     draw_border(x, y, w, h, clrSurface2);
 }
 
-#define WRAP_MAX_LINES 10
+#define WRAP_MAX_LINES 20
 #define WRAP_LINE_LEN  80
 
 static int wrap_text(const char* text, float scale, float max_width_px,
@@ -289,7 +289,7 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count, int
                 memset(lines, 0, sizeof(lines));
                 int nlines = wrap_text(agent->prompt_tool_detail, 0.43f, TOP_WIDTH - 50, lines);
                 detail_total_lines = nlines;
-                int visible = 2;
+                int visible = 3;
                 for (int l = 0; l < visible && (l + detail_scroll) < nlines; l++) {
                     C2D_Text txtLine;
                     C2D_TextParse(&txtLine, textBuf, lines[l + detail_scroll]);
@@ -308,8 +308,8 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count, int
             // Description
             if (agent->prompt_description[0] != '\0') {
                 C2D_Text txtDesc;
-                char descBuf[128];
-                snprintf(descBuf, sizeof(descBuf), "%.100s", agent->prompt_description);
+                char descBuf[256];
+                snprintf(descBuf, sizeof(descBuf), "%.200s", agent->prompt_description);
                 C2D_TextParse(&txtDesc, textBuf, descBuf);
                 C2D_TextOptimize(&txtDesc);
                 C2D_DrawText(&txtDesc, C2D_WithColor, 20, 200, 0, 0.38f, 0.38f, clrSubtext0);
@@ -509,7 +509,7 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool conn
             memset(lines, 0, sizeof(lines));
             int nlines = wrap_text(selected_agent->prompt_tool_detail, 0.43f, DETAIL_W - 15, lines);
             detail_total_lines = nlines;
-            int visible = 2;
+            int visible = 3;
             for (int l = 0; l < visible && (l + detail_scroll) < nlines; l++) {
                 C2D_Text txtLine;
                 C2D_TextParse(&txtLine, textBuf, lines[l + detail_scroll]);
@@ -530,8 +530,8 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* selected_agent, bool conn
         // Description
         if (selected_agent->prompt_description[0] != '\0') {
             C2D_Text txtDesc;
-            char descBuf[128];
-            snprintf(descBuf, sizeof(descBuf), "%.100s", selected_agent->prompt_description);
+            char descBuf[256];
+            snprintf(descBuf, sizeof(descBuf), "%.200s", selected_agent->prompt_description);
             C2D_TextParse(&txtDesc, textBuf, descBuf);
             C2D_TextOptimize(&txtDesc);
             C2D_DrawText(&txtDesc, C2D_WithColor, DETAIL_X + 5, DETAIL_Y + 52, 0,
@@ -600,7 +600,7 @@ void ui_set_auto_edit(bool enabled) {
 void ui_scroll_detail(int direction) {
     detail_scroll += direction;
     if (detail_scroll < 0) detail_scroll = 0;
-    int max_scroll = detail_total_lines - 2;  // show 2 lines at a time
+    int max_scroll = detail_total_lines - 3;  // show 3 lines at a time
     if (max_scroll < 0) max_scroll = 0;
     if (detail_scroll > max_scroll) detail_scroll = max_scroll;
 }

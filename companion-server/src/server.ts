@@ -33,6 +33,9 @@ let claudeAdapter: ClaudeAdapter | null = null;
 // Auto-edit state (synced with 3DS)
 let autoEditEnabled = false;
 
+// Hook-provided tool data (authoritative source, not overwritten by scraper)
+let pendingToolData: { toolType: string; toolDetail: string; description: string } | null = null;
+
 export function setClaudeAdapter(adapter: ClaudeAdapter) {
   claudeAdapter = adapter;
 }
@@ -43,6 +46,10 @@ export function getAgentState(): AgentStatus {
 
 export function isAutoEditEnabled(): boolean {
   return autoEditEnabled;
+}
+
+export function getPendingToolData() {
+  return pendingToolData;
 }
 
 function broadcastState() {
@@ -186,6 +193,8 @@ export function startServer() {
             description = body.tool_input.description;
           }
 
+          pendingToolData = { toolType: toolName, toolDetail: toolDetail, description };
+
           updateState({
             state: "working",
             progress: -1,
@@ -207,6 +216,8 @@ export function startServer() {
           const body = (await req.json()) as PostToolHook;
           const toolName = body.tool_name || body.tool || "Unknown";
           console.log(`[hook] post-tool: ${toolName}`);
+
+          pendingToolData = null;
 
           updateState({
             state: body.error ? "error" : "idle",
