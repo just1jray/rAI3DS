@@ -87,7 +87,7 @@ int main(int argc, char* argv[]) {
                 ui_set_auto_edit(auto_edit);
                 network_send_config(agents[selectedAgent].name, auto_edit);
                 printf("Auto-edit: %s\n", auto_edit ? "ON" : "OFF");
-            } else if (agents[selectedAgent].prompt_visible) {
+            } else if (agents[selectedAgent].state == STATE_WAITING) {
                 if (ui_touch_yes(touch)) {
                     printf("Sending yes\n");
                     network_send_action(agents[selectedAgent].name, "yes");
@@ -99,6 +99,30 @@ int main(int argc, char* argv[]) {
                     network_send_action(agents[selectedAgent].name, "no");
                 }
             }
+        }
+
+        // Physical buttons for permission prompts
+        if (agents[selectedAgent].state == STATE_WAITING) {
+            if (kDown & KEY_A) {
+                printf("Button A: yes\n");
+                network_send_action(agents[selectedAgent].name, "yes");
+            }
+            if (kDown & KEY_B) {
+                printf("Button B: no\n");
+                network_send_action(agents[selectedAgent].name, "no");
+            }
+            if (kDown & KEY_X) {
+                printf("Button X: always\n");
+                network_send_action(agents[selectedAgent].name, "always");
+            }
+        }
+
+        // Y = toggle auto-edit (works anytime)
+        if (kDown & KEY_Y) {
+            auto_edit = !auto_edit;
+            ui_set_auto_edit(auto_edit);
+            network_send_config(agents[selectedAgent].name, auto_edit);
+            printf("Button Y: auto-edit %s\n", auto_edit ? "ON" : "OFF");
         }
 
         // Circle pad for scrolling tool detail (debounced)

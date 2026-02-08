@@ -25,7 +25,7 @@ const RAIDS_HOOKS = {
       hooks: [
         {
           type: "command" as const,
-          command: `curl -s --max-time 5 -X POST http://localhost:3333/hook/pre-tool -H "Content-Type: application/json" -d @- > /dev/null 2>&1 & exit 0`,
+          command: `curl -s --connect-timeout 1 --max-time 2 -X POST http://localhost:3333/hook/pre-tool -H "Content-Type: application/json" -d @-; exit 0`,
         },
       ],
     },
@@ -36,7 +36,7 @@ const RAIDS_HOOKS = {
       hooks: [
         {
           type: "command" as const,
-          command: `curl -s --max-time 5 -X POST http://localhost:3333/hook/post-tool -H "Content-Type: application/json" -d @- > /dev/null 2>&1 & exit 0`,
+          command: `curl -s --connect-timeout 1 --max-time 2 -X POST http://localhost:3333/hook/post-tool -H "Content-Type: application/json" -d @-; exit 0`,
         },
       ],
     },

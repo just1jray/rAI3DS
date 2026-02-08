@@ -138,7 +138,7 @@ static void draw_bar(float x, float y, float w, float h, int percent, u32 color)
 
 static int wrap_text(const char* text, float scale, float max_width_px,
                      char out_lines[WRAP_MAX_LINES][WRAP_LINE_LEN]) {
-    float char_width = 13.0f * scale * 0.78f;
+    float char_width = 13.0f * scale;
     int max_chars = (int)(max_width_px / char_width);
     if (max_chars < 10) max_chars = 10;
     if (max_chars >= WRAP_LINE_LEN) max_chars = WRAP_LINE_LEN - 1;
@@ -177,7 +177,7 @@ static int wrap_text(const char* text, float scale, float max_width_px,
 static void draw_state_pill(float x, float y, AgentState state, float scale) {
     const char* label = state_to_string(state);
     u32 bg = state_to_color(state);
-    float text_width = strlen(label) * 13.0f * scale * 0.78f;
+    float text_width = strlen(label) * 13.0f * scale;
     float pill_w = text_width + 12;
     float pill_h = 18 * scale + 4;
 
