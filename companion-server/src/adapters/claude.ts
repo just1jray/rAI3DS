@@ -1,8 +1,9 @@
 import { $ } from "bun";
 
-const TMUX_SESSION = "claude-raids";
+const DEFAULT_TMUX_SESSION = "claude-raids";
 
 export interface ClaudeAdapter {
+  tmuxSession: string;
   isRunning(): Promise<boolean>;
   start(command?: string): Promise<void>;
   stop(): Promise<void>;
@@ -15,11 +16,13 @@ export interface ClaudeAdapter {
   sendInput(text: string): Promise<void>;
 }
 
-export function createClaudeAdapter(): ClaudeAdapter {
+export function createClaudeAdapter(tmuxSession: string = DEFAULT_TMUX_SESSION): ClaudeAdapter {
   return {
+    tmuxSession,
+
     async isRunning() {
       try {
-        await $`tmux has-session -t ${TMUX_SESSION}`.quiet();
+        await $`tmux has-session -t ${tmuxSession}`.quiet();
         return true;
       } catch {
         return false;
@@ -29,63 +32,63 @@ export function createClaudeAdapter(): ClaudeAdapter {
     async start(command = "claude") {
       const running = await this.isRunning();
       if (running) {
-        console.log(`[claude] Session ${TMUX_SESSION} already running`);
+        console.log(`[claude] Session ${tmuxSession} already running`);
         return;
       }
 
-      console.log(`[claude] Starting tmux session: ${TMUX_SESSION}`);
-      await $`tmux new-session -d -s ${TMUX_SESSION} ${command}`;
+      console.log(`[claude] Starting tmux session: ${tmuxSession}`);
+      await $`tmux new-session -d -s ${tmuxSession} ${command}`;
     },
 
     async stop() {
       const running = await this.isRunning();
       if (!running) {
-        console.log(`[claude] Session ${TMUX_SESSION} not running`);
+        console.log(`[claude] Session ${tmuxSession} not running`);
         return;
       }
 
-      console.log(`[claude] Stopping tmux session: ${TMUX_SESSION}`);
-      await $`tmux kill-session -t ${TMUX_SESSION}`;
+      console.log(`[claude] Stopping tmux session: ${tmuxSession}`);
+      await $`tmux kill-session -t ${tmuxSession}`;
     },
 
     async sendYes() {
       const running = await this.isRunning();
       if (!running) {
-        console.error("[claude] Cannot send Yes: session not running");
+        console.error(`[claude] Cannot send Yes: session ${tmuxSession} not running`);
         return;
       }
-      console.log("[claude] Sending Yes (Enter — option 1 is pre-selected)");
-      await $`tmux send-keys -t ${TMUX_SESSION} Enter`;
+      console.log(`[claude] Sending Yes to ${tmuxSession}`);
+      await $`tmux send-keys -t ${tmuxSession} Enter`;
     },
 
     async sendAlways() {
       const running = await this.isRunning();
       if (!running) {
-        console.error("[claude] Cannot send Always: session not running");
+        console.error(`[claude] Cannot send Always: session ${tmuxSession} not running`);
         return;
       }
-      console.log("[claude] Sending Always (Down + Enter)");
-      await $`tmux send-keys -t ${TMUX_SESSION} Down Enter`;
+      console.log(`[claude] Sending Always to ${tmuxSession}`);
+      await $`tmux send-keys -t ${tmuxSession} Down Enter`;
     },
 
     async sendNo() {
       const running = await this.isRunning();
       if (!running) {
-        console.error("[claude] Cannot send No: session not running");
+        console.error(`[claude] Cannot send No: session ${tmuxSession} not running`);
         return;
       }
-      console.log("[claude] Sending No (Down Down Enter)");
-      await $`tmux send-keys -t ${TMUX_SESSION} Down Down Enter`;
+      console.log(`[claude] Sending No to ${tmuxSession}`);
+      await $`tmux send-keys -t ${tmuxSession} Down Down Enter`;
     },
 
     async sendEscape() {
       const running = await this.isRunning();
       if (!running) {
-        console.error("[claude] Cannot send Escape: session not running");
+        console.error(`[claude] Cannot send Escape: session ${tmuxSession} not running`);
         return;
       }
-      console.log("[claude] Sending Escape");
-      await $`tmux send-keys -t ${TMUX_SESSION} Escape`;
+      console.log(`[claude] Sending Escape to ${tmuxSession}`);
+      await $`tmux send-keys -t ${tmuxSession} Escape`;
     },
 
     // Backward-compat aliases
@@ -100,12 +103,12 @@ export function createClaudeAdapter(): ClaudeAdapter {
     async sendInput(text: string) {
       const running = await this.isRunning();
       if (!running) {
-        console.error("[claude] Cannot send input: session not running");
+        console.error(`[claude] Cannot send input: session ${tmuxSession} not running`);
         return;
       }
 
-      console.log(`[claude] Sending input: ${text}`);
-      await $`tmux send-keys -t ${TMUX_SESSION} ${text} Enter`;
+      console.log(`[claude] Sending input to ${tmuxSession}: ${text}`);
+      await $`tmux send-keys -t ${tmuxSession} ${text} Enter`;
     },
   };
 }

@@ -2,6 +2,10 @@
 node_modules/
 *.log
 
+# Environment
+.env
+.env.*
+
 # Bun
 bun.lockb
 

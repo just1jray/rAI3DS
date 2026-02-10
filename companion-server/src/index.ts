@@ -1,8 +1,8 @@
-import { startServer, setClaudeAdapter, updateState, isAutoEditEnabled, getPendingToolData } from "./server";
-import { createClaudeAdapter } from "./adapters/claude";
+import { startServer, updateState, isAutoEditEnabled, getPendingToolData } from "./server";
 import { installHooks, uninstallHooks } from "./hooks";
 import { startContextTracker } from "./context";
 import { startScraper } from "./scraper";
+import { initDefaultSession, getAdapterForSlot, healthCheck } from "./session";
 
 const HELP = `
 rAI3DS Companion Server
@@ -54,8 +54,9 @@ async function main() {
   // Start server (HTTP + WebSocket on port 3333)
   console.log("rAI3DS Companion Server starting...");
 
-  const claudeAdapter = createClaudeAdapter();
-  setClaudeAdapter(claudeAdapter);
+  // Initialize default session (slot 0 — existing claude-raids tmux)
+  const defaultSession = initDefaultSession();
+  console.log(`[session] Default session initialized: ${defaultSession.tmuxPaneId}`);
 
   startServer();
   startContextTracker(10_000);
@@ -63,29 +64,29 @@ async function main() {
   // Auto-edit: tool type patterns that match edit/write operations
   const AUTO_EDIT_PATTERNS = ["edit", "write", "notebook"];
 
-  // Start tmux screen scraper to detect permission prompts
+  // Start tmux screen scraper for slot 0 (default session)
   startScraper({
     onPromptAppeared(prompt) {
-      // Prefer hook-provided data (authoritative) over scraped data (fallback)
-      const hookData = getPendingToolData();
+      const slot = 0; // Scraper always targets slot 0
+      const hookData = getPendingToolData(slot);
       const toolType = hookData?.toolType || prompt.toolType;
       const toolDetail = hookData?.toolDetail || prompt.toolDetail;
       const description = hookData?.description || prompt.description;
 
       console.log(
-        `[scraper] Prompt appeared: ${toolType} — ${toolDetail}${hookData ? " (hook)" : " (scraped)"}`
+        `[scraper] Prompt appeared (slot ${slot}): ${toolType} — ${toolDetail}${hookData ? " (hook)" : " (scraped)"}`
       );
 
-      // Auto-edit: send YES keystroke automatically for edit tools
       const isEditTool = AUTO_EDIT_PATTERNS.some((p) =>
         toolType.toLowerCase().includes(p)
       );
       if (isAutoEditEnabled() && isEditTool) {
         console.log(`[auto-edit] Auto-approving: ${toolType}`);
-        claudeAdapter.sendYes().catch((e: unknown) =>
+        const adapter = getAdapterForSlot(slot);
+        adapter?.sendYes().catch((e: unknown) =>
           console.error("[auto-edit] keystroke error:", e)
         );
-        updateState({
+        updateState(slot, {
           state: "working",
           progress: -1,
           message: `Auto-approved: ${toolType}`,
@@ -96,8 +97,7 @@ async function main() {
         return;
       }
 
-      // Normal flow: show prompt on 3DS for user to approve/deny
-      updateState({
+      updateState(slot, {
         state: "waiting",
         message: `${toolType}: ${toolDetail}`,
         promptToolType: toolType,
@@ -106,8 +106,8 @@ async function main() {
       });
     },
     onPromptDisappeared() {
-      console.log("[scraper] Prompt disappeared");
-      updateState({
+      console.log("[scraper] Prompt disappeared (slot 0)");
+      updateState(0, {
         state: "working",
         message: "Running...",
         promptToolType: undefined,
@@ -116,6 +116,11 @@ async function main() {
       });
     },
   });
+
+  // Health check: every 30s, check for dead tmux sessions
+  setInterval(() => {
+    healthCheck().catch((e) => console.error("[health] Error:", e));
+  }, 30_000);
 
   console.log("Server ready. Waiting for hooks and 3DS connections...");
 }

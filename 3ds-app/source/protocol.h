@@ -22,6 +22,10 @@ typedef struct {
     char prompt_tool_type[64];
     char prompt_tool_detail[1024];
     char prompt_description[256];
+    int slot;                   // 0-3, party position
+    bool spawning;              // true during pokeball animation
+    int spawn_anim_frame;       // animation progress
+    bool active;                // true if this slot has a live session
 } Agent;
 
 #define MAX_AGENTS 4

@@ -15,4 +15,6 @@ services:
     volumes:
       - ./3ds-app:/app
     working_dir: /app
+    environment:
+      - SERVER_HOST=${SERVER_HOST:-}
     command: make

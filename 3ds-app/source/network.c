@@ -116,12 +116,33 @@ bool network_is_connected(void) {
     return connected && ws_handshake_done;
 }
 
-static void parse_agent_status(const char* json, Agent* agents, int* agent_count) {
+static void parse_message(const char* json, Agent* agents, int* agent_count) {
     cJSON* root = cJSON_Parse(json);
     if (root == NULL) return;
 
     cJSON* type = cJSON_GetObjectItem(root, "type");
-    if (type == NULL || strcmp(type->valuestring, "agent_status") != 0) {
+    if (type == NULL || !cJSON_IsString(type)) {
+        cJSON_Delete(root);
+        return;
+    }
+
+    // Handle spawn_result messages
+    if (strcmp(type->valuestring, "spawn_result") == 0) {
+        cJSON* slotJ = cJSON_GetObjectItem(root, "slot");
+        cJSON* successJ = cJSON_GetObjectItem(root, "success");
+        if (slotJ && cJSON_IsNumber(slotJ) && successJ && cJSON_IsTrue(successJ)) {
+            int slot = slotJ->valueint;
+            if (slot >= 0 && slot < MAX_AGENTS) {
+                agents[slot].spawning = true;
+                agents[slot].spawn_anim_frame = 0;
+            }
+        }
+        cJSON_Delete(root);
+        return;
+    }
+
+    // Handle agent_status messages
+    if (strcmp(type->valuestring, "agent_status") != 0) {
         cJSON_Delete(root);
         return;
     }
@@ -131,31 +152,63 @@ static void parse_agent_status(const char* json, Agent* agents, int* agent_count
     cJSON* progress = cJSON_GetObjectItem(root, "progress");
     cJSON* message = cJSON_GetObjectItem(root, "message");
     cJSON* pending = cJSON_GetObjectItem(root, "pendingCommand");
+    cJSON* slotJ = cJSON_GetObjectItem(root, "slot");
+    cJSON* activeJ = cJSON_GetObjectItem(root, "active");
 
     if (agent_name == NULL) {
         cJSON_Delete(root);
         return;
     }
 
-    // Find or create agent slot
+    // Use slot field if available, otherwise find by name
     int idx = -1;
-    for (int i = 0; i < *agent_count; i++) {
-        if (strcasecmp(agents[i].name, agent_name->valuestring) == 0) {
-            idx = i;
-            break;
+    if (slotJ && cJSON_IsNumber(slotJ)) {
+        idx = slotJ->valueint;
+        if (idx < 0 || idx >= MAX_AGENTS) {
+            cJSON_Delete(root);
+            return;
+        }
+        // Ensure agent_count covers this slot
+        if (idx >= *agent_count) {
+            // Initialize slots between current count and this slot
+            for (int i = *agent_count; i <= idx; i++) {
+                memset(&agents[i], 0, sizeof(Agent));
+                agents[i].state = STATE_IDLE;
+                agents[i].progress = -1;
+                agents[i].slot = i;
+            }
+            *agent_count = idx + 1;
+        }
+    } else {
+        // Legacy: find by name
+        for (int i = 0; i < *agent_count; i++) {
+            if (strcasecmp(agents[i].name, agent_name->valuestring) == 0) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0 && *agent_count < MAX_AGENTS) {
+            idx = (*agent_count)++;
         }
     }
-    if (idx < 0 && *agent_count < MAX_AGENTS) {
-        idx = (*agent_count)++;
-        strncpy(agents[idx].name, agent_name->valuestring, sizeof(agents[idx].name) - 1);
-    }
+
     if (idx < 0) {
         cJSON_Delete(root);
         return;
     }
 
-    // Update agent
-    if (state) {
+    // Update agent name
+    strncpy(agents[idx].name, agent_name->valuestring, sizeof(agents[idx].name) - 1);
+    agents[idx].name[sizeof(agents[idx].name) - 1] = '\0';
+    agents[idx].slot = idx;
+
+    // Update active flag
+    if (activeJ && cJSON_IsBool(activeJ)) {
+        agents[idx].active = cJSON_IsTrue(activeJ);
+    }
+
+    // Update agent state
+    if (state && cJSON_IsString(state)) {
         const char* s = state->valuestring;
         if (strcmp(s, "working") == 0) agents[idx].state = STATE_WORKING;
         else if (strcmp(s, "waiting") == 0) agents[idx].state = STATE_WAITING;
@@ -164,8 +217,10 @@ static void parse_agent_status(const char* json, Agent* agents, int* agent_count
         else agents[idx].state = STATE_IDLE;
     }
     if (progress) agents[idx].progress = progress->valueint;
-    if (message) strncpy(agents[idx].message, message->valuestring, sizeof(agents[idx].message) - 1);
-    if (pending && pending->valuestring) {
+    if (message && cJSON_IsString(message)) {
+        strncpy(agents[idx].message, message->valuestring, sizeof(agents[idx].message) - 1);
+    }
+    if (pending && cJSON_IsString(pending)) {
         strncpy(agents[idx].pending_command, pending->valuestring, sizeof(agents[idx].pending_command) - 1);
     } else {
         agents[idx].pending_command[0] = '\0';
@@ -229,7 +284,7 @@ static void process_ws_frame(const unsigned char* data, int len, Agent* agents, 
         char json[RECV_BUF_SIZE];
         memcpy(json, data + offset, payload_len);
         json[payload_len] = '\0';
-        parse_agent_status(json, agents, agent_count);
+        parse_message(json, agents, agent_count);
     }
 }
 
@@ -323,7 +378,7 @@ static void send_ws_frame(const char* data) {
 void network_send_action(const char* agent, const char* action) {
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"type\":\"action\",\"agent\":\"%s\",\"action\":\"%s\"}",
+        "{\"type\":\"action\",\"agent\":\"%s\",\"action\":\"%s\",\"slot\":0}",
         agent, action);
     send_ws_frame(json);
 }
@@ -331,7 +386,7 @@ void network_send_action(const char* agent, const char* action) {
 void network_send_command(const char* agent, const char* command) {
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"type\":\"command\",\"agent\":\"%s\",\"command\":\"%s\"}",
+        "{\"type\":\"command\",\"agent\":\"%s\",\"command\":\"%s\",\"slot\":0}",
         agent, command);
     send_ws_frame(json);
 }

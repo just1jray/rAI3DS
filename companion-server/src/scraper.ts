@@ -16,7 +16,7 @@ export interface ScraperCallbacks {
 
 export async function captureTmuxPane(): Promise<string> {
   try {
-    const result = await $`tmux capture-pane -p -t ${TMUX_SESSION}`.quiet();
+    const result = await $`tmux capture-pane -p -t ${TMUX_SESSION} -S -30`.quiet();
     return result.text();
   } catch {
     return "";
@@ -67,7 +67,8 @@ export function parsePrompt(content: string): PromptInfo | null {
   const boxLines: string[] = [];
   let boxTopIdx = -1;
 
-  for (let i = promptIdx - 1; i >= 0; i--) {
+  const searchLimit = Math.max(0, promptIdx - 15);
+  for (let i = promptIdx - 1; i >= searchLimit; i--) {
     const line = lines[i].trim();
     // Box borders use unicode box-drawing characters
     if (line.startsWith("\u256D") || line.startsWith("+") || line.startsWith("\u250C")) {
@@ -89,6 +90,12 @@ export function parsePrompt(content: string): PromptInfo | null {
     if (stripped) {
       boxLines.unshift(stripped);
     }
+  }
+
+  // If no box border found, the text is unreliable — use only the
+  // 3 lines directly above the prompt (closest to the prompt)
+  if (boxTopIdx === -1 && boxLines.length > 3) {
+    boxLines.splice(0, boxLines.length - 3);
   }
 
   if (boxLines.length >= 1) {

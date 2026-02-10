@@ -35,6 +35,10 @@ CFLAGS      := -g -Wall -O2 -mword-relocations \
 
 CFLAGS      += $(INCLUDE) -D__3DS__
 
+ifdef SERVER_HOST
+CFLAGS      += -DSERVER_HOST=\"$(SERVER_HOST)\"
+endif
+
 CXXFLAGS    := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 
 ASFLAGS     := -g $(ARCH)

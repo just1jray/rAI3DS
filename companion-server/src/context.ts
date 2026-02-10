@@ -7,7 +7,7 @@ const PROJECT_DIR = join(
   homedir(),
   ".claude",
   "projects",
-  "-Users-jesse-Developer-rAI3DS"
+  `-${process.cwd().replace(/\//g, "-").slice(1)}`
 );
 
 const CONTEXT_WINDOW = 200_000;

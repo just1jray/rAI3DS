@@ -1,8 +1,8 @@
 // Agent types
-export type AgentName = "claude" | "codex" | "gemini" | "cursor";
+export type AgentName = string;
 export type AgentState = "working" | "waiting" | "idle" | "error" | "done";
 
-// State stored per agent
+// State stored per agent slot
 export interface AgentStatus {
   name: AgentName;
   state: AgentState;
@@ -13,6 +13,8 @@ export interface AgentStatus {
   promptToolType?: string;
   promptToolDetail?: string;
   promptDescription?: string;
+  slot: number;           // 0-3 party position
+  active: boolean;        // true if slot has a live session
 }
 
 // Hook payloads from Claude Code
@@ -34,6 +36,24 @@ export interface PostToolHook {
   error?: string;
 }
 
+// Lifecycle hook payloads
+export interface SessionStartHook {
+  session_id?: string;
+}
+
+export interface SessionEndHook {
+  session_id?: string;
+}
+
+export interface StopHook {
+  session_id?: string;
+}
+
+export interface UserPromptHook {
+  session_id?: string;
+  prompt?: string;
+}
+
 // Messages to 3DS
 export interface AgentStatusMessage {
   type: "agent_status";
@@ -46,6 +66,15 @@ export interface AgentStatusMessage {
   promptToolDetail?: string;
   promptDescription?: string;
   autoEdit?: boolean;
+  slot: number;
+  active: boolean;
+}
+
+export interface SpawnResultMessage {
+  type: "spawn_result";
+  slot: number;
+  success: boolean;
+  error?: string;
 }
 
 // Messages from 3DS
@@ -53,12 +82,14 @@ export interface UserAction {
   type: "action";
   agent: AgentName;
   action: "yes" | "always" | "no" | "escape";
+  slot?: number;
 }
 
 export interface UserCommand {
   type: "command";
   agent: AgentName;
   command: string;
+  slot?: number;
 }
 
 export interface UserConfig {
@@ -67,4 +98,9 @@ export interface UserConfig {
   autoEdit?: boolean;
 }
 
-export type DSMessage = UserAction | UserCommand | UserConfig;
+export interface SpawnRequest {
+  type: "spawn_request";
+  slot: number;
+}
+
+export type DSMessage = UserAction | UserCommand | UserConfig | SpawnRequest;
