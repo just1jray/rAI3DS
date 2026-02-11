@@ -22,4 +22,5 @@ Use these when designing or evolving **architecture** (agent orchestration, hook
 
 ## Conventions
 
-- Save all plans to the **plans** directory
+- **Always** save plans to `plans/` with the naming format `YYYY-MM-DD-<short-description>.md`
+- When using plan mode, copy the final plan to `plans/` — never leave plans only in `.claude/plans/`
