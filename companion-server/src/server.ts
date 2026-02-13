@@ -1,28 +1,24 @@
 import type {
-  PreToolHook,
-  PostToolHook,
   AgentStatus,
   AgentStatusMessage,
   DSMessage,
   SpawnResultMessage,
-  SessionStartHook,
-  SessionEndHook,
-  StopHook,
-  UserPromptHook,
+  WSData,
 } from "./types";
 import type { ServerWebSocket } from "bun";
 import {
-  resolveSlot,
-  getSession,
-  getAllSessions,
-  getAdapterForSlot,
+  handleCLIOpen,
+  handleCLIMessage,
+  handleCLIClose,
+  sendInterrupt,
+  sendUserMessage,
+  resolvePermission,
+} from "./cli-handler";
+import {
   spawnSession,
-  killSession,
   findFreeSlot,
-  linkSession,
-  touchSession,
+  getAllSessions,
 } from "./session";
-import { $ } from "bun";
 
 const PORT = 3333;
 const HOST = "0.0.0.0";
@@ -39,18 +35,15 @@ for (let i = 0; i < MAX_SLOTS; i++) {
     lastUpdate: Date.now(),
     contextPercent: 0,
     slot: i,
-    active: i === 0, // Only slot 0 starts active
+    active: false,
   });
 }
 
-// WebSocket clients (Bun native)
-const wsClients = new Set<ServerWebSocket>();
+// WebSocket clients — 3DS connections only
+const wsClients = new Set<ServerWebSocket<WSData>>();
 
 // Auto-edit state (synced with 3DS)
 let autoEditEnabled = false;
-
-// Per-slot hook-provided tool data
-const pendingToolData = new Map<number, { toolType: string; toolDetail: string; description: string }>();
 
 export function getAgentState(slot: number = 0): AgentStatus {
   return agentStates[slot];
@@ -62,10 +55,6 @@ export function getAgentStates(): AgentStatus[] {
 
 export function isAutoEditEnabled(): boolean {
   return autoEditEnabled;
-}
-
-export function getPendingToolData(slot: number = 0) {
-  return pendingToolData.get(slot) ?? null;
 }
 
 function broadcastSlotState(slot: number) {
@@ -124,115 +113,80 @@ export function updateState(slot: number, updates: Partial<AgentStatus>) {
   broadcastSlotState(slot);
 }
 
-export function updateContextPercent(percent: number, slot: number = 0) {
-  if (agentStates[slot].contextPercent === percent) return;
-  agentStates[slot].contextPercent = percent;
-  broadcastSlotState(slot);
-}
-
 export function getClientCount(): number {
   return wsClients.size;
 }
 
 // Handle incoming WebSocket messages from 3DS
-async function handleWsMessage(msg: DSMessage) {
+function handleWsMessage(msg: DSMessage) {
   console.log("[ws] Received:", JSON.stringify(msg));
 
-  if (msg.type === "spawn_request") {
-    const slot = msg.slot ?? findFreeSlot();
-    if (slot === undefined) {
-      console.log("[ws] No free slots for spawn");
-      broadcastSpawnResult(-1, false, "No free slots");
-      return;
-    }
-
-    console.log(`[ws] Spawn requested for slot ${slot}`);
-    const success = await spawnSession(slot);
-    if (success) {
-      agentStates[slot].active = true;
-      agentStates[slot].name = `claude-${slot}`;
-      agentStates[slot].state = "idle";
-      agentStates[slot].message = "Spawning...";
-    }
-    broadcastSpawnResult(slot, success, success ? undefined : "Failed to create tmux session");
-    broadcastSlotState(slot);
-    return;
-  }
-
-  // Determine target slot
-  const targetSlot = (msg as any).slot ?? 0;
-  const adapter = getAdapterForSlot(targetSlot);
-
-  if (msg.type === "action" && adapter) {
-    try {
-      switch (msg.action) {
-        case "yes":
-          await adapter.sendYes();
-          break;
-        case "always":
-          await adapter.sendAlways();
-          break;
-        case "no":
-          await adapter.sendNo();
-          break;
-        case "escape":
-          await adapter.sendEscape();
-          break;
+  switch (msg.type) {
+    case "action": {
+      const slot = msg.slot ?? 0;
+      if (msg.action === "escape") {
+        sendInterrupt(slot);
+      } else {
+        resolvePermission(slot, msg.action);
       }
-    } catch (e) {
-      console.error("[ws] tmux keystroke error:", e);
+      break;
     }
-  } else if (msg.type === "command" && adapter) {
-    if (msg.command === "spawn") {
-      // Legacy spawn via command
-      const slot = findFreeSlot();
-      if (slot !== undefined) {
-        const success = await spawnSession(slot);
-        if (success) {
-          agentStates[slot].active = true;
-          agentStates[slot].name = `claude-${slot}`;
-          agentStates[slot].state = "idle";
-          agentStates[slot].message = "Spawning...";
-          broadcastSlotState(slot);
+
+    case "command": {
+      const slot = (msg as any).slot ?? 0;
+      if (msg.command === "spawn") {
+        const freeSlot = findFreeSlot();
+        if (freeSlot === null) {
+          broadcastSpawnResult(0, false, "No free slots");
+          return;
         }
-        broadcastSpawnResult(slot, success);
+        const success = spawnSession(freeSlot);
+        broadcastSpawnResult(freeSlot, success, success ? undefined : "Spawn failed");
+      } else {
+        sendUserMessage(slot, msg.command);
       }
-    } else {
-      await adapter.sendInput(msg.command);
+      break;
     }
-  } else if (msg.type === "config") {
-    if (msg.autoEdit !== undefined) {
-      autoEditEnabled = msg.autoEdit;
-      console.log(`[ws] Auto-edit set to: ${autoEditEnabled}`);
-      const session = getSession(targetSlot);
-      if (session) {
-        const label = autoEditEnabled ? "ON" : "OFF";
-        $`tmux display-message -t ${session.tmuxPaneId} "[rAI3DS] Auto-edit: ${label}"`.quiet().catch(() => {});
+
+    case "spawn_request": {
+      const slot = msg.slot;
+      const success = spawnSession(slot);
+      broadcastSpawnResult(slot, success, success ? undefined : "Spawn failed");
+      break;
+    }
+
+    case "config": {
+      if (msg.autoEdit !== undefined) {
+        autoEditEnabled = msg.autoEdit;
+        console.log(`[ws] Auto-edit set to: ${autoEditEnabled}`);
+        broadcastAllSlots();
       }
-      broadcastAllSlots();
+      break;
     }
   }
 }
 
 export function startServer() {
-  const server = Bun.serve({
+  const server = Bun.serve<WSData>({
     hostname: HOST,
     port: PORT,
 
-    async fetch(req, server) {
-      // WebSocket upgrade
-      if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-        if (server.upgrade(req)) {
-          return undefined;
+    fetch(req, server) {
+      const url = new URL(req.url);
+
+      // CLI WebSocket: /ws/cli/:slot
+      const cliMatch = url.pathname.match(/^\/ws\/cli\/(\d+)$/);
+      if (cliMatch) {
+        const slot = parseInt(cliMatch[1]);
+        if (slot < 0 || slot >= MAX_SLOTS) {
+          return new Response("Invalid slot", { status: 400 });
         }
-        return new Response("WebSocket upgrade failed", { status: 400 });
+        const upgraded = server.upgrade(req, { data: { type: "cli" as const, slot } });
+        return upgraded ? undefined : new Response("Upgrade failed", { status: 500 });
       }
 
-      const url = new URL(req.url);
-      const path = url.pathname;
-
-      // Health check
-      if (path === "/health" && req.method === "GET") {
+      // Health endpoint
+      if (url.pathname === "/health" && req.method === "GET") {
         return Response.json({
           status: "ok",
           agents: agentStates,
@@ -240,175 +194,57 @@ export function startServer() {
           wsClients: wsClients.size,
           sessions: getAllSessions().map(s => ({
             slot: s.slot,
-            tmux: s.tmuxPaneId,
+            pid: s.pid,
             status: s.status,
-            sessionId: s.claudeSessionId,
           })),
         });
       }
 
-      // Pre-tool hook
-      if (path === "/hook/pre-tool" && req.method === "POST") {
-        try {
-          const body = (await req.json()) as PreToolHook;
-          const slot = resolveSlot(body.session_id);
-          const toolName = body.tool_name || body.tool || "Unknown";
-          console.log(`[hook] pre-tool (slot ${slot}): ${toolName}`);
-
-          let toolDetail = "";
-          if (body.tool_input) {
-            if (typeof body.tool_input.command === "string") {
-              toolDetail = body.tool_input.command;
-            } else if (typeof body.tool_input.file_path === "string") {
-              toolDetail = body.tool_input.file_path;
-            } else if (typeof body.tool_input.pattern === "string") {
-              toolDetail = body.tool_input.pattern;
-            } else if (typeof body.tool_input.query === "string") {
-              toolDetail = body.tool_input.query;
-            } else if (typeof body.tool_input.url === "string") {
-              toolDetail = body.tool_input.url;
-            } else {
-              const firstVal = Object.values(body.tool_input)[0];
-              if (typeof firstVal === "string") toolDetail = firstVal;
-            }
-          }
-
-          let description = "";
-          if (body.tool_input && typeof body.tool_input.description === "string") {
-            description = body.tool_input.description;
-          }
-
-          pendingToolData.set(slot, { toolType: toolName, toolDetail, description });
-          touchSession(slot);
-
-          updateState(slot, {
-            state: "working",
-            progress: -1,
-            message: `Tool: ${toolName}`,
-            promptToolType: toolName,
-            promptToolDetail: toolDetail,
-            promptDescription: description,
-          });
-
-          return Response.json({ action: "approve" });
-        } catch (e) {
-          return Response.json({ error: "Invalid JSON" }, { status: 400 });
-        }
+      // 3DS WebSocket: everything else that wants an upgrade
+      if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+        const upgraded = server.upgrade(req, { data: { type: "3ds" as const } });
+        return upgraded ? undefined : new Response("Upgrade failed", { status: 500 });
       }
 
-      // Post-tool hook
-      if (path === "/hook/post-tool" && req.method === "POST") {
-        try {
-          const body = (await req.json()) as PostToolHook;
-          const slot = resolveSlot(body.session_id);
-          const toolName = body.tool_name || body.tool || "Unknown";
-          console.log(`[hook] post-tool (slot ${slot}): ${toolName}`);
-
-          pendingToolData.delete(slot);
-          touchSession(slot);
-
-          updateState(slot, {
-            state: body.error ? "error" : "idle",
-            progress: -1,
-            message: body.error || `Done: ${toolName}`,
-            promptToolType: undefined,
-            promptToolDetail: undefined,
-            promptDescription: undefined,
-          });
-
-          return Response.json({ ok: true });
-        } catch (e) {
-          return Response.json({ error: "Invalid JSON" }, { status: 400 });
-        }
-      }
-
-      // Session lifecycle hooks
-      if (path === "/hook/session-start" && req.method === "POST") {
-        try {
-          const body = (await req.json()) as SessionStartHook;
-          if (body.session_id) {
-            const slot = resolveSlot(body.session_id);
-            console.log(`[hook] session-start (slot ${slot}): ${body.session_id}`);
-            touchSession(slot);
-            updateState(slot, { state: "idle", message: "Session started" });
-          }
-          return Response.json({ ok: true });
-        } catch {
-          return Response.json({ error: "Invalid JSON" }, { status: 400 });
-        }
-      }
-
-      if (path === "/hook/session-end" && req.method === "POST") {
-        try {
-          const body = (await req.json()) as SessionEndHook;
-          if (body.session_id) {
-            const slot = resolveSlot(body.session_id);
-            console.log(`[hook] session-end (slot ${slot}): ${body.session_id}`);
-            updateState(slot, { state: "done", message: "Session ended", active: false });
-          }
-          return Response.json({ ok: true });
-        } catch {
-          return Response.json({ error: "Invalid JSON" }, { status: 400 });
-        }
-      }
-
-      if (path === "/hook/stop" && req.method === "POST") {
-        try {
-          const body = (await req.json()) as StopHook;
-          const slot = resolveSlot(body.session_id);
-          console.log(`[hook] stop (slot ${slot})`);
-          touchSession(slot);
-          updateState(slot, { state: "idle", message: "Stopped" });
-          return Response.json({ ok: true });
-        } catch {
-          return Response.json({ error: "Invalid JSON" }, { status: 400 });
-        }
-      }
-
-      if (path === "/hook/user-prompt" && req.method === "POST") {
-        try {
-          const body = (await req.json()) as UserPromptHook;
-          const slot = resolveSlot(body.session_id);
-          console.log(`[hook] user-prompt (slot ${slot})`);
-          touchSession(slot);
-          updateState(slot, { state: "working", message: "Processing prompt..." });
-          return Response.json({ ok: true });
-        } catch {
-          return Response.json({ error: "Invalid JSON" }, { status: 400 });
-        }
-      }
-
-      return Response.json({ error: "Not found" }, { status: 404 });
+      return new Response("rAI3DS companion server", { status: 200 });
     },
 
     websocket: {
       open(ws) {
-        console.log("[ws] 3DS client connected");
-        wsClients.add(ws);
-        // Send current state of all slots
-        broadcastAllSlots();
+        if (ws.data.type === "cli") {
+          handleCLIOpen(ws, ws.data.slot!);
+        } else {
+          console.log("[ws] 3DS client connected");
+          wsClients.add(ws);
+          broadcastAllSlots();
+        }
       },
 
       message(ws, data) {
-        try {
-          const text =
-            typeof data === "string" ? data : new TextDecoder().decode(data);
-          const msg = JSON.parse(text) as DSMessage;
-          handleWsMessage(msg);
-        } catch (e) {
-          console.error("[ws] Invalid message:", e);
+        const text = typeof data === "string" ? data : Buffer.from(data).toString();
+        if (ws.data.type === "cli") {
+          handleCLIMessage(ws, text);
+        } else {
+          try {
+            const msg = JSON.parse(text) as DSMessage;
+            handleWsMessage(msg);
+          } catch (e) {
+            console.error("[ws] Invalid 3DS message:", e);
+          }
         }
       },
 
       close(ws) {
-        console.log("[ws] 3DS client disconnected");
-        wsClients.delete(ws);
+        if (ws.data.type === "cli") {
+          handleCLIClose(ws, ws.data.slot!);
+        } else {
+          console.log("[ws] 3DS client disconnected");
+          wsClients.delete(ws);
+        }
       },
     },
   });
 
-  console.log(
-    `Server listening on http://${HOST}:${PORT} (HTTP + WebSocket)`
-  );
+  console.log(`Server listening on http://${HOST}:${PORT} (HTTP + WebSocket)`);
   return server;
 }
