@@ -7,9 +7,16 @@
 #include "protocol.h"
 #include "network.h"
 #include "config.h"
+#include "settings.h"
 #include "animation.h"
 #include "creature.h"
 #include "audio.h"
+
+// App mode
+typedef enum {
+    MODE_MAIN,
+    MODE_SETTINGS
+} AppMode;
 
 // Reconnection timing
 #define RECONNECT_INTERVAL 120  // frames (~2 seconds at 60fps)
@@ -22,6 +29,11 @@ static bool network_ready = false;       // network_init() succeeded
 static bool first_connection_done = false;  // defer first connect until after first frame (avoids blocking on real 3DS)
 static bool auto_edit = false;           // auto-accept Edit/Write tools
 static int scroll_cooldown = 0;          // frame counter for circle pad debounce
+
+// Settings / config screen state
+static AppMode app_mode = MODE_MAIN;
+static AppSettings app_settings;
+static char server_host[20];
 
 // Animation state per creature slot
 static AnimState creature_anims[MAX_AGENTS];
@@ -42,6 +54,17 @@ int main(int argc, char* argv[]) {
 
     // Initialize UI and network
     ui_init();
+
+    // Load settings from SD card (or use config.h defaults)
+    bool has_saved_config = settings_load(&app_settings);
+    settings_format_ip(&app_settings, server_host, sizeof(server_host));
+    ui_set_server_info(server_host, app_settings.port);
+
+    // If no saved config, force the config screen on first boot
+    if (!has_saved_config) {
+        app_mode = MODE_SETTINGS;
+        ui_config_init(&app_settings, false);  // no cancel on first boot
+    }
 
     network_ready = network_init();
     if (!network_ready)
@@ -74,6 +97,39 @@ int main(int argc, char* argv[]) {
         if (kDown & KEY_START)
             break;
 
+        // Settings screen mode
+        if (app_mode == MODE_SETTINGS) {
+            CfgAction action = ui_config_handle_input(kDown);
+            if (action == CFG_ACTION_CONFIRM) {
+                ui_config_get_values(&app_settings);
+                settings_save(&app_settings);
+                settings_format_ip(&app_settings, server_host, sizeof(server_host));
+                ui_set_server_info(server_host, app_settings.port);
+                app_mode = MODE_MAIN;
+                // Disconnect and reconnect with new IP
+                network_disconnect();
+                reconnect_timer = RECONNECT_INTERVAL; // trigger immediate reconnect
+                printf("Config saved: %s:%d\n", server_host, app_settings.port);
+            } else if (action == CFG_ACTION_CANCEL) {
+                app_mode = MODE_MAIN;
+            }
+
+            // Render: top screen stays normal, bottom shows config
+            C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+            ui_render_top(topScreen, agents, agent_count, selectedAgent,
+                          network_is_connected(), creature_anims);
+            ui_render_config(bottomScreen);
+            C3D_FrameEnd(0);
+            continue;
+        }
+
+        // SELECT button opens settings
+        if (kDown & KEY_SELECT) {
+            app_mode = MODE_SETTINGS;
+            ui_config_init(&app_settings, true);  // allow cancel
+            continue;
+        }
+
         // Network polling
         network_poll(agents, &agent_count);
 
@@ -82,8 +138,8 @@ int main(int argc, char* argv[]) {
             reconnect_timer++;
             if (reconnect_timer >= RECONNECT_INTERVAL) {
                 reconnect_timer = 0;
-                printf("Reconnecting...\n");
-                network_connect(SERVER_HOST, SERVER_PORT);
+                printf("Reconnecting to %s:%d...\n", server_host, app_settings.port);
+                network_connect(server_host, app_settings.port);
             }
         } else {
             reconnect_timer = 0;
@@ -123,6 +179,13 @@ int main(int argc, char* argv[]) {
         if (kDown & KEY_TOUCH) {
             touchPosition touch;
             hidTouchRead(&touch);
+
+            // Settings button — works on any screen
+            if (ui_touch_settings(touch)) {
+                app_mode = MODE_SETTINGS;
+                ui_config_init(&app_settings, true);
+                continue;
+            }
 
             // Check creature slot taps first
             int tapped_slot = ui_touch_creature_slot(touch);
@@ -226,10 +289,11 @@ int main(int argc, char* argv[]) {
         C3D_FrameEnd(0);
 
         // Deferred first connection: after first frame so hardware doesn't block before any draw
-        if (network_ready && !first_connection_done) {
+        // Skip if we're in settings mode (first boot with no config)
+        if (network_ready && !first_connection_done && app_mode == MODE_MAIN) {
             first_connection_done = true;
-            printf("Connecting to %s:%d...\n", SERVER_HOST, SERVER_PORT);
-            network_connect(SERVER_HOST, SERVER_PORT);
+            printf("Connecting to %s:%d...\n", server_host, app_settings.port);
+            network_connect(server_host, app_settings.port);
         }
     }
 

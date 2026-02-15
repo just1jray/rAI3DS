@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "config.h"
 #include "creature.h"
+#include <3ds.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -57,6 +58,18 @@ static C2D_TextBuf textBuf;
 #define AUTO_EDIT_W   300
 #define AUTO_EDIT_H   25
 
+// Settings button (bottom-right of status bar, and on disconnected screen)
+#define SETTINGS_BTN_W  55
+#define SETTINGS_BTN_H  25
+#define SETTINGS_BTN_Y  225
+#define SETTINGS_BTN_X  (BOT_WIDTH - SETTINGS_BTN_W - 5)
+
+// Disconnected screen settings button (larger, more prominent)
+#define DISC_SETTINGS_W  160
+#define DISC_SETTINGS_H  30
+#define DISC_SETTINGS_X  ((BOT_WIDTH - DISC_SETTINGS_W) / 2)
+#define DISC_SETTINGS_Y  195
+
 // Party lineup — creature slot dimensions
 #define SLOT_W        75
 #define SLOT_GAP      5
@@ -66,6 +79,32 @@ static C2D_TextBuf textBuf;
 #define SLOT_START_X  ((BOT_WIDTH - (SLOT_W * SLOT_COUNT + SLOT_GAP * (SLOT_COUNT - 1))) / 2)
 
 static bool auto_edit_enabled = false;
+
+// Runtime server display info (replaces compile-time SERVER_HOST/PORT)
+static char display_host[20] = "";
+static int  display_port = 0;
+
+// Config screen state
+static int cfg_octets[4];
+static int cfg_port;
+static int cfg_selected = 0;       // which octet is selected (0-3)
+static bool cfg_allow_cancel = true;
+
+// Config screen layout
+#define CFG_BOX_W     60
+#define CFG_BOX_H     50
+#define CFG_BOX_GAP   12
+#define CFG_DOT_W     8
+#define CFG_TOTAL_W   (4 * CFG_BOX_W + 3 * CFG_DOT_W + 3 * 2 * 3)  // boxes + dots + margins
+#define CFG_START_X   ((BOT_WIDTH - (4 * CFG_BOX_W + 3 * (CFG_DOT_W + 6))) / 2)
+#define CFG_BOX_Y     70
+
+// Config buttons
+#define CFG_BTN_W     120
+#define CFG_BTN_H     35
+#define CFG_BTN_Y     175
+#define CFG_BTN_CONNECT_X  ((BOT_WIDTH / 2) - CFG_BTN_W - 10)
+#define CFG_BTN_CANCEL_X   ((BOT_WIDTH / 2) + 10)
 
 // Scroll state for tool detail
 static int detail_scroll = 0;
@@ -495,7 +534,7 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_DrawText(&txtDisc, C2D_WithColor, 90, 95, 0, 0.8f, 0.8f, clrYellow);
 
         char addrBuf[64];
-        snprintf(addrBuf, sizeof(addrBuf), "%s:%d", SERVER_HOST, SERVER_PORT);
+        snprintf(addrBuf, sizeof(addrBuf), "%s:%d", display_host, display_port);
         C2D_Text txtAddr;
         C2D_TextParse(&txtAddr, textBuf, addrBuf);
         C2D_TextOptimize(&txtAddr);
@@ -506,10 +545,14 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_TextOptimize(&txtWait);
         C2D_DrawText(&txtWait, C2D_WithColor, 55, 145, 0, 0.45f, 0.45f, clrSubtext0);
 
-        C2D_Text txtExit;
-        C2D_TextParse(&txtExit, textBuf, "START or HOME to exit");
-        C2D_TextOptimize(&txtExit);
-        C2D_DrawText(&txtExit, C2D_WithColor, 70, 180, 0, 0.5f, 0.5f, clrSubtext0);
+        // Settings button
+        C2D_DrawRectSolid(DISC_SETTINGS_X, DISC_SETTINGS_Y, 0, DISC_SETTINGS_W, DISC_SETTINGS_H, clrSurface0);
+        draw_border(DISC_SETTINGS_X, DISC_SETTINGS_Y, DISC_SETTINGS_W, DISC_SETTINGS_H, clrSurface1);
+        C2D_Text txtSettings;
+        C2D_TextParse(&txtSettings, textBuf, "SETTINGS [SELECT]");
+        C2D_TextOptimize(&txtSettings);
+        C2D_DrawText(&txtSettings, C2D_WithColor, DISC_SETTINGS_X + 15, DISC_SETTINGS_Y + 7, 0,
+                     0.5f, 0.5f, clrSubtext1);
         return;
     }
 
@@ -694,9 +737,18 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
     // Status bar (y=225-240)
     C2D_DrawRectSolid(0, 225, 0, BOT_WIDTH, 15, clrCrust);
     C2D_Text txtStatus;
-    C2D_TextParse(&txtStatus, textBuf, "L/R: Switch   A:Yes B:No X:Always Y:Auto");
+    C2D_TextParse(&txtStatus, textBuf, "L/R:Switch A:Yes B:No X:Always Y:Auto");
     C2D_TextOptimize(&txtStatus);
     C2D_DrawText(&txtStatus, C2D_WithColor, 10, 227, 0, 0.35f, 0.35f, clrOverlay0);
+
+    // Settings button in status bar
+    C2D_DrawRectSolid(SETTINGS_BTN_X, SETTINGS_BTN_Y, 0, SETTINGS_BTN_W, SETTINGS_BTN_H, clrSurface0);
+    draw_border(SETTINGS_BTN_X, SETTINGS_BTN_Y, SETTINGS_BTN_W, SETTINGS_BTN_H, clrSurface1);
+    C2D_Text txtCfgBtn;
+    C2D_TextParse(&txtCfgBtn, textBuf, "CFG");
+    C2D_TextOptimize(&txtCfgBtn);
+    C2D_DrawText(&txtCfgBtn, C2D_WithColor, SETTINGS_BTN_X + 14, SETTINGS_BTN_Y + 5, 0,
+                 0.45f, 0.45f, clrSubtext1);
 }
 
 // ========== TOUCH ZONES ==========
@@ -719,6 +771,20 @@ int ui_touch_no(touchPosition touch) {
 int ui_touch_auto_edit(touchPosition touch) {
     return (touch.px >= AUTO_EDIT_X && touch.px <= AUTO_EDIT_X + AUTO_EDIT_W &&
             touch.py >= AUTO_EDIT_Y && touch.py <= AUTO_EDIT_Y + AUTO_EDIT_H);
+}
+
+int ui_touch_settings(touchPosition touch) {
+    // Check disconnected screen button
+    if (touch.px >= DISC_SETTINGS_X && touch.px <= DISC_SETTINGS_X + DISC_SETTINGS_W &&
+        touch.py >= DISC_SETTINGS_Y && touch.py <= DISC_SETTINGS_Y + DISC_SETTINGS_H) {
+        return 1;
+    }
+    // Check status bar button
+    if (touch.px >= SETTINGS_BTN_X && touch.px <= SETTINGS_BTN_X + SETTINGS_BTN_W &&
+        touch.py >= SETTINGS_BTN_Y && touch.py <= SETTINGS_BTN_Y + SETTINGS_BTN_H) {
+        return 1;
+    }
+    return 0;
 }
 
 int ui_touch_creature_slot(touchPosition touch) {
@@ -752,4 +818,226 @@ void ui_scroll_detail(int direction) {
     int max_scroll = detail_total_lines - 3;
     if (max_scroll < 0) max_scroll = 0;
     if (detail_scroll > max_scroll) detail_scroll = max_scroll;
+}
+
+// ========== SERVER INFO ==========
+
+void ui_set_server_info(const char* host, int port) {
+    strncpy(display_host, host, sizeof(display_host) - 1);
+    display_host[sizeof(display_host) - 1] = '\0';
+    display_port = port;
+}
+
+// ========== CONFIG SCREEN ==========
+
+void ui_config_init(const AppSettings* settings, bool allow_cancel) {
+    for (int i = 0; i < 4; i++)
+        cfg_octets[i] = settings->octets[i];
+    cfg_port = settings->port;
+    cfg_selected = 0;
+    cfg_allow_cancel = allow_cancel;
+}
+
+void ui_config_get_values(AppSettings* out) {
+    for (int i = 0; i < 4; i++)
+        out->octets[i] = cfg_octets[i];
+    out->port = cfg_port;
+}
+
+static float cfg_octet_x(int idx) {
+    // Each unit is: box + dot_gap. Dots between octets.
+    return CFG_START_X + idx * (CFG_BOX_W + CFG_DOT_W + 6);
+}
+
+static int cfg_touch_octet(touchPosition touch) {
+    for (int i = 0; i < 4; i++) {
+        float x = cfg_octet_x(i);
+        if (touch.px >= x && touch.px <= x + CFG_BOX_W &&
+            touch.py >= CFG_BOX_Y && touch.py <= CFG_BOX_Y + CFG_BOX_H) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int cfg_touch_connect(touchPosition touch) {
+    return (touch.px >= CFG_BTN_CONNECT_X && touch.px <= CFG_BTN_CONNECT_X + CFG_BTN_W &&
+            touch.py >= CFG_BTN_Y && touch.py <= CFG_BTN_Y + CFG_BTN_H);
+}
+
+static int cfg_touch_cancel(touchPosition touch) {
+    if (!cfg_allow_cancel) return 0;
+    return (touch.px >= CFG_BTN_CANCEL_X && touch.px <= CFG_BTN_CANCEL_X + CFG_BTN_W &&
+            touch.py >= CFG_BTN_Y && touch.py <= CFG_BTN_Y + CFG_BTN_H);
+}
+
+void ui_render_config(C3D_RenderTarget* target) {
+    C2D_TargetClear(target, clrBase);
+    C2D_SceneBegin(target);
+    C2D_TextBufClear(textBuf);
+
+    // Title bar
+    C2D_DrawRectSolid(0, 0, 0, BOT_WIDTH, 28, clrCrust);
+    C2D_Text txtTitle;
+    C2D_TextParse(&txtTitle, textBuf, "SERVER ADDRESS");
+    C2D_TextOptimize(&txtTitle);
+    C2D_DrawText(&txtTitle, C2D_WithColor, 85, 5, 0, 0.6f, 0.6f, clrLavender);
+
+    // Subtitle
+    C2D_Text txtSub;
+    C2D_TextParse(&txtSub, textBuf, "Set your companion server IP");
+    C2D_TextOptimize(&txtSub);
+    C2D_DrawText(&txtSub, C2D_WithColor, 55, 38, 0, 0.45f, 0.45f, clrSubtext0);
+
+    // Octet boxes
+    for (int i = 0; i < 4; i++) {
+        float x = cfg_octet_x(i);
+        bool sel = (i == cfg_selected);
+
+        // Box background
+        C2D_DrawRectSolid(x, CFG_BOX_Y, 0, CFG_BOX_W, CFG_BOX_H, clrMantle);
+        draw_border(x, CFG_BOX_Y, CFG_BOX_W, CFG_BOX_H, sel ? clrMauve : clrSurface1);
+
+        // Up arrow on selected
+        if (sel) {
+            C2D_Text txtUp;
+            C2D_TextParse(&txtUp, textBuf, "^");
+            C2D_TextOptimize(&txtUp);
+            C2D_DrawText(&txtUp, C2D_WithColor, x + CFG_BOX_W / 2 - 4, CFG_BOX_Y - 16, 0,
+                         0.5f, 0.5f, clrMauve);
+        }
+
+        // Octet value
+        char valBuf[8];
+        snprintf(valBuf, sizeof(valBuf), "%d", cfg_octets[i]);
+        C2D_Text txtVal;
+        C2D_TextParse(&txtVal, textBuf, valBuf);
+        C2D_TextOptimize(&txtVal);
+        float valW = strlen(valBuf) * 13.0f * 0.7f;
+        C2D_DrawText(&txtVal, C2D_WithColor, x + (CFG_BOX_W - valW) / 2, CFG_BOX_Y + 12, 0,
+                     0.7f, 0.7f, sel ? clrMauve : clrText);
+
+        // Down arrow on selected
+        if (sel) {
+            C2D_Text txtDn;
+            C2D_TextParse(&txtDn, textBuf, "v");
+            C2D_TextOptimize(&txtDn);
+            C2D_DrawText(&txtDn, C2D_WithColor, x + CFG_BOX_W / 2 - 4, CFG_BOX_Y + CFG_BOX_H + 2, 0,
+                         0.5f, 0.5f, clrMauve);
+        }
+
+        // Dot separator (after octets 0, 1, 2)
+        if (i < 3) {
+            C2D_Text txtDot;
+            C2D_TextParse(&txtDot, textBuf, ".");
+            C2D_TextOptimize(&txtDot);
+            C2D_DrawText(&txtDot, C2D_WithColor, x + CFG_BOX_W + 1, CFG_BOX_Y + 14, 0,
+                         0.7f, 0.7f, clrSubtext0);
+        }
+    }
+
+    // Port display
+    char portBuf[32];
+    snprintf(portBuf, sizeof(portBuf), "Port: %d", cfg_port);
+    C2D_Text txtPort;
+    C2D_TextParse(&txtPort, textBuf, portBuf);
+    C2D_TextOptimize(&txtPort);
+    C2D_DrawText(&txtPort, C2D_WithColor, BOT_WIDTH / 2 - 25, CFG_BOX_Y + CFG_BOX_H + 22, 0,
+                 0.45f, 0.45f, clrOverlay0);
+
+    // CONNECT button
+    C2D_DrawRectSolid(CFG_BTN_CONNECT_X, CFG_BTN_Y, 0, CFG_BTN_W, CFG_BTN_H, clrGreen);
+    C2D_Text txtConnect;
+    C2D_TextParse(&txtConnect, textBuf, "CONNECT");
+    C2D_TextOptimize(&txtConnect);
+    C2D_DrawText(&txtConnect, C2D_WithColor, CFG_BTN_CONNECT_X + 20, CFG_BTN_Y + 8, 0,
+                 0.6f, 0.6f, clrCrust);
+    C2D_Text txtConnHint;
+    C2D_TextParse(&txtConnHint, textBuf, "[A]");
+    C2D_TextOptimize(&txtConnHint);
+    C2D_DrawText(&txtConnHint, C2D_WithColor, CFG_BTN_CONNECT_X + 48, CFG_BTN_Y + 22, 0,
+                 0.35f, 0.35f, clrCrust);
+
+    // CANCEL button (only if allowed)
+    if (cfg_allow_cancel) {
+        C2D_DrawRectSolid(CFG_BTN_CANCEL_X, CFG_BTN_Y, 0, CFG_BTN_W, CFG_BTN_H, clrRed);
+        C2D_Text txtCancel;
+        C2D_TextParse(&txtCancel, textBuf, "CANCEL");
+        C2D_TextOptimize(&txtCancel);
+        C2D_DrawText(&txtCancel, C2D_WithColor, CFG_BTN_CANCEL_X + 25, CFG_BTN_Y + 8, 0,
+                     0.6f, 0.6f, clrCrust);
+        C2D_Text txtCancelHint;
+        C2D_TextParse(&txtCancelHint, textBuf, "[B]");
+        C2D_TextOptimize(&txtCancelHint);
+        C2D_DrawText(&txtCancelHint, C2D_WithColor, CFG_BTN_CANCEL_X + 48, CFG_BTN_Y + 22, 0,
+                     0.35f, 0.35f, clrCrust);
+    } else {
+        // On first boot without cancel, center the CONNECT button
+        // (already positioned left, this is fine as-is)
+    }
+
+    // Hint bar
+    C2D_DrawRectSolid(0, 225, 0, BOT_WIDTH, 15, clrCrust);
+    C2D_Text txtHint;
+    const char* hint = "D-Pad:Edit  L/R:+/-10  A:Connect  B:Cancel";
+    if (!cfg_allow_cancel)
+        hint = "D-Pad: Edit   L/R: +/-10   A: Connect";
+    C2D_TextParse(&txtHint, textBuf, hint);
+    C2D_TextOptimize(&txtHint);
+    C2D_DrawText(&txtHint, C2D_WithColor, 10, 227, 0, 0.35f, 0.35f, clrOverlay0);
+}
+
+CfgAction ui_config_handle_input(u32 kDown) {
+    // D-pad left/right: move between octets
+    if (kDown & KEY_DLEFT) {
+        cfg_selected = (cfg_selected - 1 + 4) % 4;
+    }
+    if (kDown & KEY_DRIGHT) {
+        cfg_selected = (cfg_selected + 1) % 4;
+    }
+
+    // D-pad up/down: change selected octet value
+    if (kDown & KEY_DUP) {
+        cfg_octets[cfg_selected] = (cfg_octets[cfg_selected] + 1) % 256;
+    }
+    if (kDown & KEY_DDOWN) {
+        cfg_octets[cfg_selected] = (cfg_octets[cfg_selected] - 1 + 256) % 256;
+    }
+
+    // L/R bumpers: jump +/-10
+    if (kDown & KEY_R) {
+        cfg_octets[cfg_selected] = (cfg_octets[cfg_selected] + 10) % 256;
+    }
+    if (kDown & KEY_L) {
+        cfg_octets[cfg_selected] = (cfg_octets[cfg_selected] - 10 + 256) % 256;
+    }
+
+    // A = confirm
+    if (kDown & KEY_A) {
+        return CFG_ACTION_CONFIRM;
+    }
+
+    // B = cancel (if allowed)
+    if ((kDown & KEY_B) && cfg_allow_cancel) {
+        return CFG_ACTION_CANCEL;
+    }
+
+    // Touch input
+    if (kDown & KEY_TOUCH) {
+        touchPosition touch;
+        hidTouchRead(&touch);
+
+        int tapped = cfg_touch_octet(touch);
+        if (tapped >= 0) {
+            cfg_selected = tapped;
+        }
+        if (cfg_touch_connect(touch)) {
+            return CFG_ACTION_CONFIRM;
+        }
+        if (cfg_touch_cancel(touch)) {
+            return CFG_ACTION_CANCEL;
+        }
+    }
+
+    return CFG_ACTION_NONE;
 }
