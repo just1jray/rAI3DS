@@ -42,9 +42,6 @@ int ui_touch_auto_edit(touchPosition touch);
 // Check if touch hit a creature slot (returns 0-3, or -1 if none)
 int ui_touch_creature_slot(touchPosition touch);
 
-// Check if touch hit the spawn "+" button (returns 1 if hit)
-int ui_touch_spawn(touchPosition touch);
-
 // Set auto-edit state for rendering
 void ui_set_auto_edit(bool enabled);
 

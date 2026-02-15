@@ -33,6 +33,7 @@ export function handleCLIOpen(ws: ServerWebSocket<WSData>, slot: number) {
 }
 
 export function handleCLIMessage(ws: ServerWebSocket<WSData>, data: string) {
+  console.log(`[cli:raw] ${data.slice(0, 200)}`);
   const lines = data.split("\n").filter((l: string) => l.trim());
   for (const line of lines) {
     try {

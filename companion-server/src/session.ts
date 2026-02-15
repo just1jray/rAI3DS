@@ -51,7 +51,8 @@ export function spawnSession(slot: number, cwd?: string, resumeId?: string): boo
   try {
     const proc = Bun.spawn(args, {
       cwd: cwd ?? process.cwd(),
-      stdout: "ignore",
+      stdin: "pipe",
+      stdout: "pipe",
       stderr: "pipe",
     });
 
@@ -66,6 +67,24 @@ export function spawnSession(slot: number, cwd?: string, resumeId?: string): boo
     sessions.set(slot, session);
 
     console.log(`[session] Spawned slot ${slot} (PID ${proc.pid})`);
+
+    // Stream stdout and stderr for debugging
+    for (const [label, stream] of [["stdout", proc.stdout], ["stderr", proc.stderr]] as const) {
+      if (stream) {
+        (async () => {
+          const reader = (stream as ReadableStream<Uint8Array>).getReader();
+          const decoder = new TextDecoder();
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const text = decoder.decode(value).trim();
+              if (text) console.log(`[session:${slot}:${label}] ${text}`);
+            }
+          } catch {}
+        })();
+      }
+    }
 
     // Monitor exit
     proc.exited.then((exitCode) => {

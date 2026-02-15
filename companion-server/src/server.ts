@@ -86,7 +86,9 @@ function broadcastSlotState(slot: number) {
 
 function broadcastAllSlots() {
   for (let i = 0; i < MAX_SLOTS; i++) {
-    broadcastSlotState(i);
+    if (agentStates[i].active) {
+      broadcastSlotState(i);
+    }
   }
 }
 

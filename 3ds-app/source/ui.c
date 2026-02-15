@@ -25,6 +25,7 @@ static u32 clrMauve;      // #cba6f7 — accents, active tab
 static u32 clrLavender;   // #b4befe — highlights, title
 static u32 clrTeal;       // #94e2d5 — healthy context bar
 static u32 clrSapphire;   // #74c7ec — info accent
+static u32 clrSelectedBg; // #2a223e — dark mauve tint for selected row
 
 // Text buffers
 static C2D_TextBuf textBuf;
@@ -131,8 +132,9 @@ void ui_init(void) {
     clrLavender = C2D_Color32(0xb4, 0xbe, 0xfe, 0xFF);
     clrTeal     = C2D_Color32(0x94, 0xe2, 0xd5, 0xFF);
     clrSapphire = C2D_Color32(0x74, 0xc7, 0xec, 0xFF);
+    clrSelectedBg = C2D_Color32(0x2a, 0x22, 0x3e, 0xFF);
 
-    textBuf = C2D_TextBufNew(4096);
+    textBuf = C2D_TextBufNew(8192);
 }
 
 void ui_exit(void) {
@@ -310,9 +312,19 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
     C2D_SceneBegin(target);
     C2D_TextBufClear(textBuf);
 
-    if (agent_count <= 1) {
+    // Count active agents to decide layout
+    int active_count = 0;
+    int first_active = -1;
+    for (int i = 0; i < agent_count; i++) {
+        if (agents[i].active) {
+            active_count++;
+            if (first_active < 0) first_active = i;
+        }
+    }
+
+    if (active_count <= 1) {
         // === Expanded single-agent layout ===
-        Agent* agent = (agent_count > 0) ? &agents[0] : NULL;
+        Agent* agent = (first_active >= 0) ? &agents[first_active] : NULL;
 
         // Title bar (y=0, 24px)
         C2D_DrawRectSolid(0, 0, 0, TOP_WIDTH, 24, clrCrust);
@@ -334,8 +346,8 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_DrawRectSolid(0, 28, 0, TOP_WIDTH, 50, clrMantle);
 
         // Draw creature in header area
-        if (anims) {
-            const CreatureFrame* frame = anim_current_frame(&anims[0]);
+        if (anims && first_active >= 0) {
+            const CreatureFrame* frame = anim_current_frame(&anims[first_active]);
             if (frame) {
                 draw_creature(15, 30, 3, frame);  // scale 3 = 48x48
             }
@@ -451,13 +463,17 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         // === Multi-agent compact rows with creatures ===
         float row_height = 55.0f;
         float start_y = 10.0f;
+        int row = 0;
 
         for (int i = 0; i < agent_count && i < MAX_AGENTS; i++) {
+            if (!agents[i].active) continue;
             Agent* agent = &agents[i];
-            float y = start_y + (i * row_height);
+            float y = start_y + (row * row_height);
+            row++;
 
             if (i == selected) {
-                C2D_DrawRectSolid(0, y, 0, TOP_WIDTH, row_height - 5, clrMantle);
+                C2D_DrawRectSolid(0, y, 0, TOP_WIDTH, row_height - 5, clrSelectedBg);
+                C2D_DrawRectSolid(0, y, 0, 3, row_height - 5, clrMauve);
             }
 
             // Small creature on the left
@@ -800,12 +816,6 @@ int ui_touch_creature_slot(touchPosition touch) {
         }
     }
     return -1;
-}
-
-int ui_touch_spawn(touchPosition touch) {
-    // Spawn is triggered by tapping any empty slot (handled in main.c)
-    // This function is for a dedicated spawn button, which we don't have yet
-    return 0;
 }
 
 void ui_set_auto_edit(bool enabled) {

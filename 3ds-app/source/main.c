@@ -130,8 +130,27 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
+        // Touch settings button — checked before network code since
+        // network_connect() blocks on TCP timeout with a bad IP
+        if (kDown & KEY_TOUCH) {
+            touchPosition touch;
+            hidTouchRead(&touch);
+            if (ui_touch_settings(touch)) {
+                app_mode = MODE_SETTINGS;
+                ui_config_init(&app_settings, true);
+                continue;
+            }
+        }
+
         // Network polling
         network_poll(agents, &agent_count);
+
+        // Validate selectedAgent points to an active agent
+        if (agent_count > 0 && !agents[selectedAgent].active) {
+            for (int i = 0; i < agent_count; i++) {
+                if (agents[i].active) { selectedAgent = i; break; }
+            }
+        }
 
         // Reconnection logic
         if (!network_is_connected()) {
@@ -180,13 +199,6 @@ int main(int argc, char* argv[]) {
             touchPosition touch;
             hidTouchRead(&touch);
 
-            // Settings button — works on any screen
-            if (ui_touch_settings(touch)) {
-                app_mode = MODE_SETTINGS;
-                ui_config_init(&app_settings, true);
-                continue;
-            }
-
             // Check creature slot taps first
             int tapped_slot = ui_touch_creature_slot(touch);
             if (tapped_slot >= 0 && tapped_slot < agent_count) {
@@ -195,25 +207,22 @@ int main(int argc, char* argv[]) {
             } else if (tapped_slot >= 0 && tapped_slot >= agent_count) {
                 // Tapped empty slot — request spawn
                 printf("Spawn requested for slot %d\n", tapped_slot);
-                network_send_command(agents[0].name, "spawn");
-            } else if (ui_touch_spawn(touch)) {
-                printf("Spawn button tapped\n");
-                network_send_command(agents[0].name, "spawn");
+                network_send_command(0, "spawn");
             } else if (ui_touch_auto_edit(touch)) {
                 auto_edit = !auto_edit;
                 ui_set_auto_edit(auto_edit);
-                network_send_config(agents[selectedAgent].name, auto_edit);
+                network_send_config(auto_edit);
                 printf("Auto-edit: %s\n", auto_edit ? "ON" : "OFF");
             } else if (agents[selectedAgent].state == STATE_WAITING) {
                 if (ui_touch_yes(touch)) {
                     printf("Sending yes\n");
-                    network_send_action(agents[selectedAgent].name, "yes");
+                    network_send_action(selectedAgent, "yes");
                 } else if (ui_touch_always(touch)) {
                     printf("Sending always\n");
-                    network_send_action(agents[selectedAgent].name, "always");
+                    network_send_action(selectedAgent, "always");
                 } else if (ui_touch_no(touch)) {
                     printf("Sending no\n");
-                    network_send_action(agents[selectedAgent].name, "no");
+                    network_send_action(selectedAgent, "no");
                 }
             }
         }
@@ -222,15 +231,15 @@ int main(int argc, char* argv[]) {
         if (agents[selectedAgent].state == STATE_WAITING) {
             if (kDown & KEY_A) {
                 printf("Button A: yes\n");
-                network_send_action(agents[selectedAgent].name, "yes");
+                network_send_action(selectedAgent, "yes");
             }
             if (kDown & KEY_B) {
                 printf("Button B: no\n");
-                network_send_action(agents[selectedAgent].name, "no");
+                network_send_action(selectedAgent, "no");
             }
             if (kDown & KEY_X) {
                 printf("Button X: always\n");
-                network_send_action(agents[selectedAgent].name, "always");
+                network_send_action(selectedAgent, "always");
             }
         }
 
@@ -238,7 +247,7 @@ int main(int argc, char* argv[]) {
         if (kDown & KEY_Y) {
             auto_edit = !auto_edit;
             ui_set_auto_edit(auto_edit);
-            network_send_config(agents[selectedAgent].name, auto_edit);
+            network_send_config(auto_edit);
             printf("Button Y: auto-edit %s\n", auto_edit ? "ON" : "OFF");
         }
 
@@ -264,20 +273,18 @@ int main(int argc, char* argv[]) {
             ui_scroll_detail(1);
         }
 
-        // D-pad up/down to switch agents
-        if (kDown & KEY_DOWN && agent_count > 0) {
-            selectedAgent = (selectedAgent + 1) % agent_count;
+        // D-pad up/down and L/R to switch agents (skip inactive)
+        if ((kDown & (KEY_DOWN | KEY_R)) && agent_count > 0) {
+            int start = selectedAgent;
+            do {
+                selectedAgent = (selectedAgent + 1) % agent_count;
+            } while (!agents[selectedAgent].active && selectedAgent != start);
         }
-        if (kDown & KEY_UP && agent_count > 0) {
-            selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
-        }
-
-        // L/R bumpers to cycle selected agent
-        if (kDown & KEY_R && agent_count > 0) {
-            selectedAgent = (selectedAgent + 1) % agent_count;
-        }
-        if (kDown & KEY_L && agent_count > 0) {
-            selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
+        if ((kDown & (KEY_UP | KEY_L)) && agent_count > 0) {
+            int start = selectedAgent;
+            do {
+                selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
+            } while (!agents[selectedAgent].active && selectedAgent != start);
         }
 
         // Render (always draw first so real 3DS shows UI before any blocking connect)

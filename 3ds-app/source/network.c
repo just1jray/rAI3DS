@@ -375,27 +375,27 @@ static void send_ws_frame(const char* data) {
     send(sock, frame, offset, 0);
 }
 
-void network_send_action(const char* agent, const char* action) {
+void network_send_action(int slot, const char* action) {
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"type\":\"action\",\"agent\":\"%s\",\"action\":\"%s\",\"slot\":0}",
-        agent, action);
+        "{\"type\":\"action\",\"action\":\"%s\",\"slot\":%d}",
+        action, slot);
     send_ws_frame(json);
 }
 
-void network_send_command(const char* agent, const char* command) {
+void network_send_command(int slot, const char* command) {
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"type\":\"command\",\"agent\":\"%s\",\"command\":\"%s\",\"slot\":0}",
-        agent, command);
+        "{\"type\":\"command\",\"command\":\"%s\",\"slot\":%d}",
+        command, slot);
     send_ws_frame(json);
 }
 
-void network_send_config(const char* agent, bool auto_edit) {
+void network_send_config(bool auto_edit) {
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"type\":\"config\",\"agent\":\"%s\",\"autoEdit\":%s}",
-        agent, auto_edit ? "true" : "false");
+        "{\"type\":\"config\",\"autoEdit\":%s}",
+        auto_edit ? "true" : "false");
     send_ws_frame(json);
 }
 

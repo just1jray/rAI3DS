@@ -24,14 +24,14 @@ bool network_is_connected(void);
 // Updates agents array with received status
 void network_poll(Agent* agents, int* agent_count);
 
-// Send action to server
-void network_send_action(const char* agent, const char* action);
+// Send action to server (slot = which agent slot to target)
+void network_send_action(int slot, const char* action);
 
-// Send command to server
-void network_send_command(const char* agent, const char* command);
+// Send command to server (slot = which agent slot to target)
+void network_send_command(int slot, const char* command);
 
 // Send config change to server (e.g. auto-edit toggle)
-void network_send_config(const char* agent, bool auto_edit);
+void network_send_config(bool auto_edit);
 
 // Get server-synced auto-edit state (updated from broadcasts)
 bool network_get_auto_edit(void);
