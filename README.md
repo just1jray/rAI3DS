@@ -7,7 +7,7 @@ Inspired by:
 - https://vibecraft.sh/
 - https://github.com/stevysmith/clawdgotchi
 
-**Status:** MVP in development
+**Status:** MVP completed, developing functional improvements
 
 ## Goals
 
