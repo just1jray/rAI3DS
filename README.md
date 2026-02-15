@@ -2,7 +2,22 @@
 
 A Nintendo 3DS homebrew application that serves as a dedicated companion device for AI coding agents.
 
+Inspired by:
+- https://ralv.ai/
+- https://vibecraft.sh/
+- https://github.com/stevysmith/clawdgotchi
+
 **Status:** MVP in development
+
+## Goals
+
+I love the 3DS, and I have always wanted to build a homebrew app. Vibe coding has both opened the door for me to do this, and provided an opportunity for what the app could be. I imagine a control interface akin to playing Pokémon! I feel the menuing and turn-based style lends itself well to this use case. The following are some goals that I hope to make a reality with this project:
+
+- Connect to and control existing Claude Code sessions using the 3DS as a controller
+- Spawn new agents
+- Prompting with the 3DS mic (local whisper model running with server to interpret audio?)
+- Nested menus with prompts, commands, skills, plugins, and more
+- Add support for other agent providers (Cursor, Codex, Gemini, etc.)
 
 ## Quick Start
 
@@ -20,9 +35,7 @@ bun install
 bun run dev
 ```
 
-The server runs on:
-- HTTP :3333 (receives Claude Code hooks)
-- WebSocket :3334 (3DS connection)
+The server runs on port 3333 (HTTP + WebSocket).
 
 ### 3DS App
 
@@ -58,7 +71,7 @@ bun run src/index.ts install
 ./scripts/test-e2e.sh
 
 # Manual WebSocket testing
-wscat -c ws://localhost:3334
+wscat -c ws://localhost:3333
 ```
 
 ## Project Structure

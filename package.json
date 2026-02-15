@@ -1,0 +1,5 @@
+{
+  "name": "raids",
+  "private": true,
+  "workspaces": ["companion-server"]
+}
