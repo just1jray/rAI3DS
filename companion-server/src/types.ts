@@ -1,10 +1,9 @@
 // Agent types
-export type AgentName = string;
 export type AgentState = "working" | "waiting" | "idle" | "error" | "done";
 
 // State stored per agent slot
 export interface AgentStatus {
-  name: AgentName;
+  name: string;
   state: AgentState;
   progress: number; // 0-100, -1 for indeterminate
   message: string;
@@ -36,28 +35,23 @@ export interface PostToolHook {
   error?: string;
 }
 
-// Lifecycle hook payloads
-export interface SessionStartHook {
+// Lifecycle hook payloads (all share the same shape)
+export interface LifecycleHook {
   session_id?: string;
 }
 
-export interface SessionEndHook {
-  session_id?: string;
-}
+export type SessionStartHook = LifecycleHook;
+export type SessionEndHook = LifecycleHook;
+export type StopHook = LifecycleHook;
 
-export interface StopHook {
-  session_id?: string;
-}
-
-export interface UserPromptHook {
-  session_id?: string;
+export interface UserPromptHook extends LifecycleHook {
   prompt?: string;
 }
 
 // Messages to 3DS
 export interface AgentStatusMessage {
   type: "agent_status";
-  agent: AgentName;
+  agent: string;
   state: AgentState;
   progress: number;
   message: string;
@@ -80,21 +74,21 @@ export interface SpawnResultMessage {
 // Messages from 3DS
 export interface UserAction {
   type: "action";
-  agent: AgentName;
+  agent: string;
   action: "yes" | "always" | "no" | "escape";
   slot?: number;
 }
 
 export interface UserCommand {
   type: "command";
-  agent: AgentName;
+  agent: string;
   command: string;
   slot?: number;
 }
 
 export interface UserConfig {
   type: "config";
-  agent: AgentName;
+  agent: string;
   autoEdit?: boolean;
 }
 

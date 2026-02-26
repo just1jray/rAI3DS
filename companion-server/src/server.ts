@@ -21,12 +21,12 @@ import {
   findFreeSlot,
   linkSession,
   touchSession,
+  MAX_SLOTS,
 } from "./session";
 import { $ } from "bun";
 
 const PORT = 3333;
 const HOST = "0.0.0.0";
-const MAX_SLOTS = 4;
 
 // In-memory state — one per slot
 const agentStates: AgentStatus[] = [];
@@ -68,6 +68,16 @@ export function getPendingToolData(slot: number = 0) {
   return pendingToolData.get(slot) ?? null;
 }
 
+function broadcast(data: string) {
+  for (const client of wsClients) {
+    try {
+      client.send(data);
+    } catch {
+      wsClients.delete(client);
+    }
+  }
+}
+
 function broadcastSlotState(slot: number) {
   const state = agentStates[slot];
   const message: AgentStatusMessage = {
@@ -84,15 +94,7 @@ function broadcastSlotState(slot: number) {
     slot: state.slot,
     active: state.active,
   };
-
-  const data = JSON.stringify(message);
-  for (const client of wsClients) {
-    try {
-      client.send(data);
-    } catch {
-      wsClients.delete(client);
-    }
-  }
+  broadcast(JSON.stringify(message));
 }
 
 function broadcastAllSlots() {
@@ -102,21 +104,8 @@ function broadcastAllSlots() {
 }
 
 function broadcastSpawnResult(slot: number, success: boolean, error?: string) {
-  const message: SpawnResultMessage = {
-    type: "spawn_result",
-    slot,
-    success,
-    error,
-  };
-
-  const data = JSON.stringify(message);
-  for (const client of wsClients) {
-    try {
-      client.send(data);
-    } catch {
-      wsClients.delete(client);
-    }
-  }
+  const message: SpawnResultMessage = { type: "spawn_result", slot, success, error };
+  broadcast(JSON.stringify(message));
 }
 
 export function updateState(slot: number, updates: Partial<AgentStatus>) {
@@ -134,6 +123,19 @@ export function getClientCount(): number {
   return wsClients.size;
 }
 
+async function doSpawn(slot: number): Promise<void> {
+  console.log(`[ws] Spawn requested for slot ${slot}`);
+  const success = await spawnSession(slot);
+  if (success) {
+    agentStates[slot].active = true;
+    agentStates[slot].name = `claude-${slot}`;
+    agentStates[slot].state = "idle";
+    agentStates[slot].message = "Spawning...";
+  }
+  broadcastSpawnResult(slot, success, success ? undefined : "Failed to create tmux session");
+  broadcastSlotState(slot);
+}
+
 // Handle incoming WebSocket messages from 3DS
 async function handleWsMessage(msg: DSMessage) {
   console.log("[ws] Received:", JSON.stringify(msg));
@@ -145,61 +147,27 @@ async function handleWsMessage(msg: DSMessage) {
       broadcastSpawnResult(-1, false, "No free slots");
       return;
     }
-
-    console.log(`[ws] Spawn requested for slot ${slot}`);
-    const success = await spawnSession(slot);
-    if (success) {
-      agentStates[slot].active = true;
-      agentStates[slot].name = `claude-${slot}`;
-      agentStates[slot].state = "idle";
-      agentStates[slot].message = "Spawning...";
-    }
-    broadcastSpawnResult(slot, success, success ? undefined : "Failed to create tmux session");
-    broadcastSlotState(slot);
+    await doSpawn(slot);
     return;
   }
 
   // Determine target slot
-  const targetSlot = (msg as any).slot ?? 0;
+  const targetSlot = "slot" in msg ? (msg.slot ?? 0) : 0;
   const adapter = getAdapterForSlot(targetSlot);
 
   if (msg.type === "action" && adapter) {
     try {
       switch (msg.action) {
-        case "yes":
-          await adapter.sendYes();
-          break;
-        case "always":
-          await adapter.sendAlways();
-          break;
-        case "no":
-          await adapter.sendNo();
-          break;
-        case "escape":
-          await adapter.sendEscape();
-          break;
+        case "yes":    await adapter.sendYes();    break;
+        case "always": await adapter.sendAlways(); break;
+        case "no":     await adapter.sendNo();     break;
+        case "escape": await adapter.sendEscape(); break;
       }
     } catch (e) {
       console.error("[ws] tmux keystroke error:", e);
     }
   } else if (msg.type === "command" && adapter) {
-    if (msg.command === "spawn") {
-      // Legacy spawn via command
-      const slot = findFreeSlot();
-      if (slot !== undefined) {
-        const success = await spawnSession(slot);
-        if (success) {
-          agentStates[slot].active = true;
-          agentStates[slot].name = `claude-${slot}`;
-          agentStates[slot].state = "idle";
-          agentStates[slot].message = "Spawning...";
-          broadcastSlotState(slot);
-        }
-        broadcastSpawnResult(slot, success);
-      }
-    } else {
-      await adapter.sendInput(msg.command);
-    }
+    await adapter.sendInput(msg.command);
   } else if (msg.type === "config") {
     if (msg.autoEdit !== undefined) {
       autoEditEnabled = msg.autoEdit;
@@ -212,6 +180,15 @@ async function handleWsMessage(msg: DSMessage) {
       broadcastAllSlots();
     }
   }
+}
+
+function extractToolDetail(toolInput: Record<string, unknown>): string {
+  const keys = ["command", "file_path", "pattern", "query", "url"] as const;
+  for (const key of keys) {
+    if (typeof toolInput[key] === "string") return toolInput[key] as string;
+  }
+  const firstVal = Object.values(toolInput)[0];
+  return typeof firstVal === "string" ? firstVal : "";
 }
 
 export function startServer() {
@@ -255,28 +232,10 @@ export function startServer() {
           const toolName = body.tool_name || body.tool || "Unknown";
           console.log(`[hook] pre-tool (slot ${slot}): ${toolName}`);
 
-          let toolDetail = "";
-          if (body.tool_input) {
-            if (typeof body.tool_input.command === "string") {
-              toolDetail = body.tool_input.command;
-            } else if (typeof body.tool_input.file_path === "string") {
-              toolDetail = body.tool_input.file_path;
-            } else if (typeof body.tool_input.pattern === "string") {
-              toolDetail = body.tool_input.pattern;
-            } else if (typeof body.tool_input.query === "string") {
-              toolDetail = body.tool_input.query;
-            } else if (typeof body.tool_input.url === "string") {
-              toolDetail = body.tool_input.url;
-            } else {
-              const firstVal = Object.values(body.tool_input)[0];
-              if (typeof firstVal === "string") toolDetail = firstVal;
-            }
-          }
-
-          let description = "";
-          if (body.tool_input && typeof body.tool_input.description === "string") {
-            description = body.tool_input.description;
-          }
+          const toolDetail = body.tool_input ? extractToolDetail(body.tool_input) : "";
+          const description = typeof body.tool_input?.description === "string"
+            ? body.tool_input.description
+            : "";
 
           pendingToolData.set(slot, { toolType: toolName, toolDetail, description });
           touchSession(slot);
@@ -385,7 +344,7 @@ export function startServer() {
       open(ws) {
         console.log("[ws] 3DS client connected");
         wsClients.add(ws);
-        // Send current state of all slots
+        // Send current state of all slots to the new client
         broadcastAllSlots();
       },
 

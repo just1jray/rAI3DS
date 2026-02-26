@@ -1,7 +1,7 @@
 import { $ } from "bun";
 import { createClaudeAdapter, type ClaudeAdapter } from "./adapters/claude";
 
-const MAX_SLOTS = 4;
+export const MAX_SLOTS = 4;
 
 export interface ManagedSession {
   slot: number;
@@ -217,20 +217,6 @@ export async function healthCheck(): Promise<void> {
         sessionIdMap.delete(session.claudeSessionId);
       }
       sessions.delete(slot);
-    }
-  }
-}
-
-/**
- * Working timeout: reset stuck 'working' sessions after 2 minutes.
- */
-export function checkWorkingTimeouts(): void {
-  const TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
-  const now = Date.now();
-
-  for (const [_slot, session] of sessions) {
-    if (session.status === "active" && now - session.lastActivity > TIMEOUT_MS) {
-      // Will be handled by the caller to reset agent state
     }
   }
 }
