@@ -10,7 +10,9 @@
     "start": "bun run src/index.ts",
     "test": "bun test"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "latest"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   }

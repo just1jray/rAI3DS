@@ -14,38 +14,9 @@ export interface AgentStatus {
   promptDescription?: string;
   slot: number;           // 0-3 party position
   active: boolean;        // true if slot has a live session
-}
-
-// Hook payloads from Claude Code
-export interface PreToolHook {
-  session_id?: string;
-  tool_name?: string;
-  tool_input?: Record<string, unknown>;
-  // Legacy field from old hook format
-  tool?: string;
-}
-
-export interface PostToolHook {
-  session_id?: string;
-  tool_name?: string;
-  tool_input?: Record<string, unknown>;
-  // Legacy fields
-  tool?: string;
-  output?: string;
-  error?: string;
-}
-
-// Lifecycle hook payloads (all share the same shape)
-export interface LifecycleHook {
-  session_id?: string;
-}
-
-export type SessionStartHook = LifecycleHook;
-export type SessionEndHook = LifecycleHook;
-export type StopHook = LifecycleHook;
-
-export interface UserPromptHook extends LifecycleHook {
-  prompt?: string;
+  // SDK-specific fields
+  sdkSessionId?: string;  // Agent SDK session ID
+  pendingToolUseID?: string; // Current pending permission toolUseID
 }
 
 // Messages to 3DS
