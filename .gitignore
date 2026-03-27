@@ -27,8 +27,8 @@ Thumbs.db
 # Docker
 .docker/
 
-# Plans
-plans/
+# Plans (intentionally tracked)
+# plans/
 
 # Claude
 .claude/settings.local.json
