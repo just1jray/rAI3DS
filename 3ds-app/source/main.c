@@ -132,10 +132,10 @@ int main(int argc, char* argv[]) {
             } else if (tapped_slot >= 0 && tapped_slot >= agent_count) {
                 // Tapped empty slot — request spawn
                 printf("Spawn requested for slot %d\n", tapped_slot);
-                network_send_command(agents[0].name, "spawn");
+                network_send_command(agents[0].name, "spawn", tapped_slot);
             } else if (ui_touch_spawn(touch)) {
                 printf("Spawn button tapped\n");
-                network_send_command(agents[0].name, "spawn");
+                network_send_command(agents[0].name, "spawn", selectedAgent);
             } else if (ui_touch_auto_edit(touch)) {
                 auto_edit = !auto_edit;
                 ui_set_auto_edit(auto_edit);
@@ -144,13 +144,13 @@ int main(int argc, char* argv[]) {
             } else if (agents[selectedAgent].state == STATE_WAITING) {
                 if (ui_touch_yes(touch)) {
                     printf("Sending yes\n");
-                    network_send_action(agents[selectedAgent].name, "yes");
+                    network_send_action(agents[selectedAgent].name, "yes", selectedAgent);
                 } else if (ui_touch_always(touch)) {
                     printf("Sending always\n");
-                    network_send_action(agents[selectedAgent].name, "always");
+                    network_send_action(agents[selectedAgent].name, "always", selectedAgent);
                 } else if (ui_touch_no(touch)) {
                     printf("Sending no\n");
-                    network_send_action(agents[selectedAgent].name, "no");
+                    network_send_action(agents[selectedAgent].name, "no", selectedAgent);
                 }
             }
         }
@@ -159,15 +159,15 @@ int main(int argc, char* argv[]) {
         if (agents[selectedAgent].state == STATE_WAITING) {
             if (kDown & KEY_A) {
                 printf("Button A: yes\n");
-                network_send_action(agents[selectedAgent].name, "yes");
+                network_send_action(agents[selectedAgent].name, "yes", selectedAgent);
             }
             if (kDown & KEY_B) {
                 printf("Button B: no\n");
-                network_send_action(agents[selectedAgent].name, "no");
+                network_send_action(agents[selectedAgent].name, "no", selectedAgent);
             }
             if (kDown & KEY_X) {
                 printf("Button X: always\n");
-                network_send_action(agents[selectedAgent].name, "always");
+                network_send_action(agents[selectedAgent].name, "always", selectedAgent);
             }
         }
 
