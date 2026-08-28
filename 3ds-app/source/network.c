@@ -375,19 +375,19 @@ static void send_ws_frame(const char* data) {
     send(sock, frame, offset, 0);
 }
 
-void network_send_action(const char* agent, const char* action) {
+void network_send_action(const char* agent, const char* action, int slot) {
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"type\":\"action\",\"agent\":\"%s\",\"action\":\"%s\",\"slot\":0}",
-        agent, action);
+        "{\"type\":\"action\",\"agent\":\"%s\",\"action\":\"%s\",\"slot\":%d}",
+        agent, action, slot);
     send_ws_frame(json);
 }
 
-void network_send_command(const char* agent, const char* command) {
+void network_send_command(const char* agent, const char* command, int slot) {
     char json[256];
     snprintf(json, sizeof(json),
-        "{\"type\":\"command\",\"agent\":\"%s\",\"command\":\"%s\",\"slot\":0}",
-        agent, command);
+        "{\"type\":\"command\",\"agent\":\"%s\",\"command\":\"%s\",\"slot\":%d}",
+        agent, command, slot);
     send_ws_frame(json);
 }
 

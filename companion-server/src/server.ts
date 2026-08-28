@@ -1,32 +1,22 @@
 import type {
+  PermissionRequestHook,
+  PermissionRequestResponse,
   PreToolHook,
   PostToolHook,
   AgentStatus,
   AgentStatusMessage,
   DSMessage,
-  SpawnResultMessage,
   SessionStartHook,
   SessionEndHook,
   StopHook,
-  UserPromptHook,
+  PendingPermission,
 } from "./types";
 import type { ServerWebSocket } from "bun";
-import {
-  resolveSlot,
-  getSession,
-  getAllSessions,
-  getAdapterForSlot,
-  spawnSession,
-  killSession,
-  findFreeSlot,
-  linkSession,
-  touchSession,
-  MAX_SLOTS,
-} from "./session";
-import { $ } from "bun";
 
 const PORT = 3333;
 const HOST = "0.0.0.0";
+const MAX_SLOTS = 4;
+const PERMISSION_TIMEOUT_MS = 90_000; // 90 seconds before auto-deny
 
 // In-memory state — one per slot
 const agentStates: AgentStatus[] = [];
@@ -35,11 +25,11 @@ for (let i = 0; i < MAX_SLOTS; i++) {
     name: i === 0 ? "claude" : `agent-${i}`,
     state: "idle",
     progress: -1,
-    message: "Waiting for activity...",
+    message: "Waiting for Claude session...",
     lastUpdate: Date.now(),
     contextPercent: 0,
     slot: i,
-    active: i === 0, // Only slot 0 starts active
+    active: false,
   });
 }
 
@@ -49,8 +39,14 @@ const wsClients = new Set<ServerWebSocket>();
 // Auto-edit state (synced with 3DS)
 let autoEditEnabled = false;
 
-// Per-slot hook-provided tool data
-const pendingToolData = new Map<number, { toolType: string; toolDetail: string; description: string }>();
+// Session ID to slot mapping
+const sessionSlots = new Map<string, number>();
+
+// Pending permission requests (held HTTP responses)
+const pendingPermissions = new Map<number, PendingPermission>();
+
+// Request counter for unique IDs
+let requestCounter = 0;
 
 export function getAgentState(slot: number = 0): AgentStatus {
   return agentStates[slot];
@@ -62,10 +58,6 @@ export function getAgentStates(): AgentStatus[] {
 
 export function isAutoEditEnabled(): boolean {
   return autoEditEnabled;
-}
-
-export function getPendingToolData(slot: number = 0) {
-  return pendingToolData.get(slot) ?? null;
 }
 
 function broadcast(data: string) {
@@ -103,11 +95,6 @@ function broadcastAllSlots() {
   }
 }
 
-function broadcastSpawnResult(slot: number, success: boolean, error?: string) {
-  const message: SpawnResultMessage = { type: "spawn_result", slot, success, error };
-  broadcast(JSON.stringify(message));
-}
-
 export function updateState(slot: number, updates: Partial<AgentStatus>) {
   Object.assign(agentStates[slot], updates, { lastUpdate: Date.now() });
   broadcastSlotState(slot);
@@ -123,63 +110,21 @@ export function getClientCount(): number {
   return wsClients.size;
 }
 
-async function doSpawn(slot: number): Promise<void> {
-  console.log(`[ws] Spawn requested for slot ${slot}`);
-  const success = await spawnSession(slot);
-  if (success) {
-    agentStates[slot].active = true;
-    agentStates[slot].name = `claude-${slot}`;
-    agentStates[slot].state = "idle";
-    agentStates[slot].message = "Spawning...";
-  }
-  broadcastSpawnResult(slot, success, success ? undefined : "Failed to create tmux session");
-  broadcastSlotState(slot);
-}
-
-// Handle incoming WebSocket messages from 3DS
-async function handleWsMessage(msg: DSMessage) {
-  console.log("[ws] Received:", JSON.stringify(msg));
-
-  if (msg.type === "spawn_request") {
-    const slot = msg.slot ?? findFreeSlot();
-    if (slot === undefined) {
-      console.log("[ws] No free slots for spawn");
-      broadcastSpawnResult(-1, false, "No free slots");
-      return;
-    }
-    await doSpawn(slot);
-    return;
-  }
-
-  // Determine target slot
-  const targetSlot = "slot" in msg ? (msg.slot ?? 0) : 0;
-  const adapter = getAdapterForSlot(targetSlot);
-
-  if (msg.type === "action" && adapter) {
-    try {
-      switch (msg.action) {
-        case "yes":    await adapter.sendYes();    break;
-        case "always": await adapter.sendAlways(); break;
-        case "no":     await adapter.sendNo();     break;
-        case "escape": await adapter.sendEscape(); break;
-      }
-    } catch (e) {
-      console.error("[ws] tmux keystroke error:", e);
-    }
-  } else if (msg.type === "command" && adapter) {
-    await adapter.sendInput(msg.command);
-  } else if (msg.type === "config") {
-    if (msg.autoEdit !== undefined) {
-      autoEditEnabled = msg.autoEdit;
-      console.log(`[ws] Auto-edit set to: ${autoEditEnabled}`);
-      const session = getSession(targetSlot);
-      if (session) {
-        const label = autoEditEnabled ? "ON" : "OFF";
-        $`tmux display-message -t ${session.tmuxPaneId} "[rAI3DS] Auto-edit: ${label}"`.quiet().catch(() => {});
-      }
-      broadcastAllSlots();
+function resolveSlot(sessionId?: string): number {
+  if (!sessionId) return 0;
+  const slot = sessionSlots.get(sessionId);
+  if (slot !== undefined) return slot;
+  
+  // Auto-assign to first available slot
+  for (let i = 0; i < MAX_SLOTS; i++) {
+    if (!agentStates[i].active) {
+      sessionSlots.set(sessionId, i);
+      return i;
     }
   }
+  // Fallback to slot 0 if all active
+  sessionSlots.set(sessionId, 0);
+  return 0;
 }
 
 function extractToolDetail(toolInput: Record<string, unknown>): string {
@@ -189,6 +134,90 @@ function extractToolDetail(toolInput: Record<string, unknown>): string {
   }
   const firstVal = Object.values(toolInput)[0];
   return typeof firstVal === "string" ? firstVal : "";
+}
+
+// Create a permission response
+function makePermissionResponse(behavior: "allow" | "deny", message?: string): PermissionRequestResponse {
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PermissionRequest",
+      decision: {
+        behavior,
+        ...(message && { message }),
+      },
+    },
+  };
+}
+
+// Resolve a pending permission request
+function resolvePendingPermission(slot: number, action: "yes" | "always" | "no") {
+  const pending = pendingPermissions.get(slot);
+  if (!pending) {
+    console.log(`[permission] No pending request for slot ${slot}`);
+    return false;
+  }
+
+  let behavior: "allow" | "deny";
+  let message: string;
+  
+  switch (action) {
+    case "yes":
+      behavior = "allow";
+      message = "Approved by 3DS user";
+      break;
+    case "always":
+      behavior = "allow";
+      message = "Always approved by 3DS user";
+      break;
+    case "no":
+      behavior = "deny";
+      message = "Denied by 3DS user";
+      break;
+  }
+
+  console.log(`[permission] Resolving slot ${slot} with ${behavior}: ${message}`);
+  pending.resolve(makePermissionResponse(behavior, message));
+  pendingPermissions.delete(slot);
+
+  // Update state to working
+  updateState(slot, {
+    state: action === "no" ? "idle" : "working",
+    message: action === "no" ? "Permission denied" : `Running: ${pending.toolName}`,
+    promptToolType: undefined,
+    promptToolDetail: undefined,
+    promptDescription: undefined,
+  });
+
+  return true;
+}
+
+// Handle incoming WebSocket messages from 3DS
+async function handleWsMessage(msg: DSMessage) {
+  console.log("[ws] Received:", JSON.stringify(msg));
+
+  const targetSlot = "slot" in msg ? (msg.slot ?? 0) : 0;
+
+  if (msg.type === "action") {
+    // Handle permission actions from 3DS
+    const resolved = resolvePendingPermission(targetSlot, msg.action);
+    if (!resolved && msg.action === "escape") {
+      // Escape without pending permission - just clear state
+      updateState(targetSlot, {
+        state: "idle",
+        message: "Cancelled",
+        promptToolType: undefined,
+        promptToolDetail: undefined,
+        promptDescription: undefined,
+      });
+    }
+  } else if (msg.type === "config") {
+    if (msg.autoEdit !== undefined) {
+      autoEditEnabled = msg.autoEdit;
+      console.log(`[ws] Auto-edit set to: ${autoEditEnabled}`);
+      broadcastAllSlots();
+    }
+  }
+  // Note: spawn_request and command types removed - no tmux management
 }
 
 export function startServer() {
@@ -215,41 +244,148 @@ export function startServer() {
           agents: agentStates,
           autoEdit: autoEditEnabled,
           wsClients: wsClients.size,
-          sessions: getAllSessions().map(s => ({
-            slot: s.slot,
-            tmux: s.tmuxPaneId,
-            status: s.status,
-            sessionId: s.claudeSessionId,
+          pendingPermissions: pendingPermissions.size,
+          sessions: Array.from(sessionSlots.entries()).map(([id, slot]) => ({
+            sessionId: id,
+            slot,
+            active: agentStates[slot].active,
           })),
         });
       }
 
-      // Pre-tool hook
+      // PermissionRequest hook - the primary permission control hook
+      // This is held until 3DS responds or timeout
+      if (path === "/hook/permission-request" && req.method === "POST") {
+        try {
+          const body = (await req.json()) as PermissionRequestHook;
+          const slot = resolveSlot(body.session_id);
+          const toolName = body.tool_name || "Unknown";
+          const toolDetail = body.tool_input ? extractToolDetail(body.tool_input) : "";
+          const description = typeof body.tool_input?.description === "string"
+            ? body.tool_input.description
+            : "";
+
+          console.log(`[hook] permission-request (slot ${slot}): ${toolName} — ${toolDetail}`);
+
+          // Check auto-edit for edit/write tools
+          const AUTO_EDIT_PATTERNS = ["edit", "write", "notebook"];
+          const isEditTool = AUTO_EDIT_PATTERNS.some((p) =>
+            toolName.toLowerCase().includes(p)
+          );
+          if (autoEditEnabled && isEditTool) {
+            console.log(`[auto-edit] Auto-approving: ${toolName}`);
+            updateState(slot, {
+              state: "working",
+              progress: -1,
+              message: `Auto-approved: ${toolName}`,
+              promptToolType: undefined,
+              promptToolDetail: undefined,
+              promptDescription: undefined,
+            });
+            return Response.json(makePermissionResponse("allow", "Auto-approved by rAI3DS"));
+          }
+
+          // Set state to waiting - 3DS will see this
+          updateState(slot, {
+            state: "waiting",
+            message: `${toolName}: ${toolDetail}`,
+            promptToolType: toolName,
+            promptToolDetail: toolDetail,
+            promptDescription: description,
+          });
+
+          // Create a promise that will be resolved when 3DS responds
+          const requestId = `perm-${++requestCounter}`;
+          
+          return new Promise<Response>((resolve) => {
+            const pending: PendingPermission = {
+              requestId,
+              slot,
+              toolName,
+              toolInput: body.tool_input || {},
+              description,
+              sessionId: body.session_id,
+              createdAt: Date.now(),
+              resolve: (response) => {
+                resolve(Response.json(response));
+              },
+            };
+
+            pendingPermissions.set(slot, pending);
+
+            // Set timeout - deny if no response
+            setTimeout(() => {
+              if (pendingPermissions.has(slot) && pendingPermissions.get(slot)?.requestId === requestId) {
+                console.log(`[permission] Timeout for slot ${slot}, denying`);
+                pendingPermissions.delete(slot);
+                updateState(slot, {
+                  state: "idle",
+                  message: "Permission timed out",
+                  promptToolType: undefined,
+                  promptToolDetail: undefined,
+                  promptDescription: undefined,
+                });
+                resolve(Response.json(makePermissionResponse("deny", "Permission request timed out")));
+              }
+            }, PERMISSION_TIMEOUT_MS);
+          });
+        } catch (e) {
+          console.error("[hook] permission-request error:", e);
+          return Response.json({ error: "Invalid JSON" }, { status: 400 });
+        }
+      }
+
+      // Session start hook - registers session without tmux
+      if (path === "/hook/session-start" && req.method === "POST") {
+        try {
+          const body = (await req.json()) as SessionStartHook;
+          if (body.session_id) {
+            const slot = resolveSlot(body.session_id);
+            console.log(`[hook] session-start (slot ${slot}): ${body.session_id}`);
+            agentStates[slot].active = true;
+            agentStates[slot].name = slot === 0 ? "claude" : `claude-${slot}`;
+            updateState(slot, { state: "idle", message: "Session started" });
+          }
+          return Response.json({ ok: true });
+        } catch {
+          return Response.json({ error: "Invalid JSON" }, { status: 400 });
+        }
+      }
+
+      // Session end hook
+      if (path === "/hook/session-end" && req.method === "POST") {
+        try {
+          const body = (await req.json()) as SessionEndHook;
+          if (body.session_id) {
+            const slot = sessionSlots.get(body.session_id) ?? 0;
+            console.log(`[hook] session-end (slot ${slot}): ${body.session_id}`);
+            
+            // Clear any pending permission
+            if (pendingPermissions.has(slot)) {
+              const pending = pendingPermissions.get(slot)!;
+              pending.resolve(makePermissionResponse("deny", "Session ended"));
+              pendingPermissions.delete(slot);
+            }
+            
+            sessionSlots.delete(body.session_id);
+            agentStates[slot].active = false;
+            updateState(slot, { state: "done", message: "Session ended" });
+          }
+          return Response.json({ ok: true });
+        } catch {
+          return Response.json({ error: "Invalid JSON" }, { status: 400 });
+        }
+      }
+
+      // Pre-tool hook (observability only - does not control permissions)
       if (path === "/hook/pre-tool" && req.method === "POST") {
         try {
           const body = (await req.json()) as PreToolHook;
           const slot = resolveSlot(body.session_id);
           const toolName = body.tool_name || body.tool || "Unknown";
           console.log(`[hook] pre-tool (slot ${slot}): ${toolName}`);
-
-          const toolDetail = body.tool_input ? extractToolDetail(body.tool_input) : "";
-          const description = typeof body.tool_input?.description === "string"
-            ? body.tool_input.description
-            : "";
-
-          pendingToolData.set(slot, { toolType: toolName, toolDetail, description });
-          touchSession(slot);
-
-          updateState(slot, {
-            state: "working",
-            progress: -1,
-            message: `Tool: ${toolName}`,
-            promptToolType: toolName,
-            promptToolDetail: toolDetail,
-            promptDescription: description,
-          });
-
-          return Response.json({ action: "approve" });
+          // Just acknowledge - no permission control here
+          return Response.json({ ok: true });
         } catch (e) {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });
         }
@@ -263,11 +399,8 @@ export function startServer() {
           const toolName = body.tool_name || body.tool || "Unknown";
           console.log(`[hook] post-tool (slot ${slot}): ${toolName}`);
 
-          pendingToolData.delete(slot);
-          touchSession(slot);
-
           updateState(slot, {
-            state: body.error ? "error" : "idle",
+            state: body.error ? "error" : "working",
             progress: -1,
             message: body.error || `Done: ${toolName}`,
             promptToolType: undefined,
@@ -281,56 +414,13 @@ export function startServer() {
         }
       }
 
-      // Session lifecycle hooks
-      if (path === "/hook/session-start" && req.method === "POST") {
-        try {
-          const body = (await req.json()) as SessionStartHook;
-          if (body.session_id) {
-            const slot = resolveSlot(body.session_id);
-            console.log(`[hook] session-start (slot ${slot}): ${body.session_id}`);
-            touchSession(slot);
-            updateState(slot, { state: "idle", message: "Session started" });
-          }
-          return Response.json({ ok: true });
-        } catch {
-          return Response.json({ error: "Invalid JSON" }, { status: 400 });
-        }
-      }
-
-      if (path === "/hook/session-end" && req.method === "POST") {
-        try {
-          const body = (await req.json()) as SessionEndHook;
-          if (body.session_id) {
-            const slot = resolveSlot(body.session_id);
-            console.log(`[hook] session-end (slot ${slot}): ${body.session_id}`);
-            updateState(slot, { state: "done", message: "Session ended", active: false });
-          }
-          return Response.json({ ok: true });
-        } catch {
-          return Response.json({ error: "Invalid JSON" }, { status: 400 });
-        }
-      }
-
+      // Stop hook
       if (path === "/hook/stop" && req.method === "POST") {
         try {
           const body = (await req.json()) as StopHook;
           const slot = resolveSlot(body.session_id);
           console.log(`[hook] stop (slot ${slot})`);
-          touchSession(slot);
-          updateState(slot, { state: "idle", message: "Stopped" });
-          return Response.json({ ok: true });
-        } catch {
-          return Response.json({ error: "Invalid JSON" }, { status: 400 });
-        }
-      }
-
-      if (path === "/hook/user-prompt" && req.method === "POST") {
-        try {
-          const body = (await req.json()) as UserPromptHook;
-          const slot = resolveSlot(body.session_id);
-          console.log(`[hook] user-prompt (slot ${slot})`);
-          touchSession(slot);
-          updateState(slot, { state: "working", message: "Processing prompt..." });
+          updateState(slot, { state: "idle", message: "Ready" });
           return Response.json({ ok: true });
         } catch {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });
@@ -367,7 +457,7 @@ export function startServer() {
   });
 
   console.log(
-    `Server listening on http://${HOST}:${PORT} (HTTP + WebSocket)`
+    `Server listening on http://${HOST}:${PORT} (HTTP hooks + WebSocket)`
   );
   return server;
 }

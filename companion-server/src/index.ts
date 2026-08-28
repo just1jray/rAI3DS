@@ -1,11 +1,12 @@
-import { startServer, updateState, isAutoEditEnabled, getPendingToolData } from "./server";
+import { startServer } from "./server";
 import { installHooks, uninstallHooks } from "./hooks";
 import { startContextTracker } from "./context";
-import { startScraper } from "./scraper";
-import { initDefaultSession, getAdapterForSlot, healthCheck } from "./session";
 
 const HELP = `
 rAI3DS Companion Server
+
+Turn your Nintendo 3DS into a permission remote for Claude Code.
+No tmux required — sessions register via hooks, permissions via HTTP.
 
 Usage:
   raids [command]
@@ -19,7 +20,16 @@ Commands:
 Examples:
   raids              # Start server
   raids install      # Install hooks, then start server
-  raids uninstall    # Remove hooks
+
+How it works:
+  1. Run 'raids install' to set up HTTP hooks in ~/.claude/settings.json
+  2. Run 'raids' (or 'raids start') to start the companion server
+  3. Open Claude Code — the session registers automatically via SessionStart hook
+  4. When Claude needs permission, the PermissionRequest hook holds the request
+  5. Your 3DS sees STATE_WAITING and can approve (A), always (Y), or deny (B)
+  6. The held HTTP response resolves with allow/deny, Claude continues
+
+No tmux session required. No screen scraping. Real permission control.
 `;
 
 async function main() {
@@ -53,76 +63,23 @@ async function main() {
 
   // Start server (HTTP + WebSocket on port 3333)
   console.log("rAI3DS Companion Server starting...");
-
-  // Initialize default session (slot 0 — existing claude-raids tmux)
-  const defaultSession = initDefaultSession();
-  console.log(`[session] Default session initialized: ${defaultSession.tmuxPaneId}`);
+  console.log("");
+  console.log("Architecture:");
+  console.log("  Claude Code ──[HTTP hooks]──> Companion Server <══[WebSocket]══> 3DS");
+  console.log("");
+  console.log("Key endpoints:");
+  console.log("  POST /hook/permission-request  — Holds until 3DS responds (allow/deny)");
+  console.log("  POST /hook/session-start       — Registers Claude session (no tmux)");
+  console.log("  POST /hook/session-end         — Cleans up session");
+  console.log("  GET  /health                   — Server status");
+  console.log("  WS   /                         — 3DS connection");
+  console.log("");
 
   startServer();
   startContextTracker(10_000);
 
-  // Auto-edit: tool type patterns that match edit/write operations
-  const AUTO_EDIT_PATTERNS = ["edit", "write", "notebook"];
-
-  // Start tmux screen scraper for slot 0 (default session)
-  startScraper({
-    onPromptAppeared(prompt) {
-      const slot = 0; // Scraper always targets slot 0
-      const hookData = getPendingToolData(slot);
-      const toolType = hookData?.toolType || prompt.toolType;
-      const toolDetail = hookData?.toolDetail || prompt.toolDetail;
-      const description = hookData?.description || prompt.description;
-
-      console.log(
-        `[scraper] Prompt appeared (slot ${slot}): ${toolType} — ${toolDetail}${hookData ? " (hook)" : " (scraped)"}`
-      );
-
-      const isEditTool = AUTO_EDIT_PATTERNS.some((p) =>
-        toolType.toLowerCase().includes(p)
-      );
-      if (isAutoEditEnabled() && isEditTool) {
-        console.log(`[auto-edit] Auto-approving: ${toolType}`);
-        const adapter = getAdapterForSlot(slot);
-        adapter?.sendYes().catch((e: unknown) =>
-          console.error("[auto-edit] keystroke error:", e)
-        );
-        updateState(slot, {
-          state: "working",
-          progress: -1,
-          message: `Auto-approved: ${toolType}`,
-          promptToolType: undefined,
-          promptToolDetail: undefined,
-          promptDescription: undefined,
-        });
-        return;
-      }
-
-      updateState(slot, {
-        state: "waiting",
-        message: `${toolType}: ${toolDetail}`,
-        promptToolType: toolType,
-        promptToolDetail: toolDetail,
-        promptDescription: description,
-      });
-    },
-    onPromptDisappeared() {
-      console.log("[scraper] Prompt disappeared (slot 0)");
-      updateState(0, {
-        state: "working",
-        message: "Running...",
-        promptToolType: undefined,
-        promptToolDetail: undefined,
-        promptDescription: undefined,
-      });
-    },
-  });
-
-  // Health check: every 30s, check for dead tmux sessions
-  setInterval(() => {
-    healthCheck().catch((e) => console.error("[health] Error:", e));
-  }, 30_000);
-
-  console.log("Server ready. Waiting for hooks and 3DS connections...");
+  console.log("Server ready. Open Claude Code — the session will register via hooks.");
+  console.log("No tmux session required.");
 }
 
 main().catch((e) => {

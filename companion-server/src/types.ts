@@ -16,32 +16,63 @@ export interface AgentStatus {
   active: boolean;        // true if slot has a live session
 }
 
-// Hook payloads from Claude Code
+// PermissionRequest hook payload from Claude Code
+// This is the primary hook for permission decisions (Aug 2026)
+export interface PermissionRequestHook {
+  session_id: string;
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_use_id: string;
+  hook_event_name: "PermissionRequest";
+  cwd?: string;
+  permission_mode?: string;
+}
+
+// PermissionRequest response format
+export interface PermissionRequestResponse {
+  hookSpecificOutput: {
+    hookEventName: "PermissionRequest";
+    decision: {
+      behavior: "allow" | "deny";
+      message?: string;
+    };
+  };
+}
+
+// PreToolUse hook payload (fires before tool execution)
 export interface PreToolHook {
   session_id?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
+  tool_use_id?: string;
+  hook_event_name?: string;
   // Legacy field from old hook format
   tool?: string;
 }
 
+// PostToolUse hook payload
 export interface PostToolHook {
   session_id?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
+  tool_use_id?: string;
   // Legacy fields
   tool?: string;
   output?: string;
   error?: string;
 }
 
-// Lifecycle hook payloads (all share the same shape)
+// Lifecycle hook payloads
 export interface LifecycleHook {
   session_id?: string;
 }
 
-export type SessionStartHook = LifecycleHook;
-export type SessionEndHook = LifecycleHook;
+export type SessionStartHook = LifecycleHook & {
+  hook_event_name?: "SessionStart";
+};
+export type SessionEndHook = LifecycleHook & {
+  hook_event_name?: "SessionEnd";
+};
 export type StopHook = LifecycleHook;
 
 export interface UserPromptHook extends LifecycleHook {
@@ -94,7 +125,19 @@ export interface UserConfig {
 
 export interface SpawnRequest {
   type: "spawn_request";
-  slot: number;
+  slot?: number;
 }
 
 export type DSMessage = UserAction | UserCommand | UserConfig | SpawnRequest;
+
+// Pending permission request (held HTTP response)
+export interface PendingPermission {
+  requestId: string;
+  slot: number;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  description: string;
+  sessionId: string;
+  createdAt: number;
+  resolve: (response: PermissionRequestResponse) => void;
+}
