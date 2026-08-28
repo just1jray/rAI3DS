@@ -33,6 +33,12 @@ void network_send_command(const char* agent, const char* command, int slot);
 // Send config change to server (e.g. auto-edit toggle)
 void network_send_config(const char* agent, bool auto_edit);
 
+// FIGHT wheel: send selected option (pick)
+void network_send_pick(int slot, int index);
+
+// FIGHT wheel: send RUN (stop/interrupt) command
+void network_send_run(int slot);
+
 // Get server-synced auto-edit state (updated from broadcasts)
 bool network_get_auto_edit(void);
 

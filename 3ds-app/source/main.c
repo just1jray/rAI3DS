@@ -119,12 +119,16 @@ int main(int argc, char* argv[]) {
             ui_set_auto_edit(auto_edit);
         }
 
+        // Determine if we're in permission prompt mode or FIGHT wheel mode
+        bool in_prompt = agents[selectedAgent].state == STATE_WAITING;
+        bool in_fight = !in_prompt && agents[selectedAgent].option_count > 0;
+
         // Handle touch
         if (kDown & KEY_TOUCH) {
             touchPosition touch;
             hidTouchRead(&touch);
 
-            // Check creature slot taps first
+            // Check creature slot taps first (always available)
             int tapped_slot = ui_touch_creature_slot(touch);
             if (tapped_slot >= 0 && tapped_slot < agent_count) {
                 selectedAgent = tapped_slot;
@@ -141,7 +145,8 @@ int main(int argc, char* argv[]) {
                 ui_set_auto_edit(auto_edit);
                 network_send_config(agents[selectedAgent].name, auto_edit);
                 printf("Auto-edit: %s\n", auto_edit ? "ON" : "OFF");
-            } else if (agents[selectedAgent].state == STATE_WAITING) {
+            } else if (in_prompt) {
+                // Permission prompt touch zones
                 if (ui_touch_yes(touch)) {
                     printf("Sending yes\n");
                     network_send_action(agents[selectedAgent].name, "yes", selectedAgent);
@@ -152,11 +157,20 @@ int main(int argc, char* argv[]) {
                     printf("Sending no\n");
                     network_send_action(agents[selectedAgent].name, "no", selectedAgent);
                 }
+            } else if (in_fight) {
+                // FIGHT wheel touch zones (large hitboxes)
+                int tapped_opt = ui_touch_fight_option(touch, agents[selectedAgent].option_count);
+                if (tapped_opt >= 0) {
+                    ui_fight_set_highlight(tapped_opt);
+                    printf("FIGHT touch option %d, sending pick\n", tapped_opt);
+                    network_send_pick(selectedAgent, tapped_opt);
+                }
             }
         }
 
-        // Physical buttons for permission prompts
-        if (agents[selectedAgent].state == STATE_WAITING) {
+        // Physical buttons depend on mode
+        if (in_prompt) {
+            // Permission prompt mode: A=yes, B=no, X=always
             if (kDown & KEY_A) {
                 printf("Button A: yes\n");
                 network_send_action(agents[selectedAgent].name, "yes", selectedAgent);
@@ -169,6 +183,19 @@ int main(int argc, char* argv[]) {
                 printf("Button X: always\n");
                 network_send_action(agents[selectedAgent].name, "always", selectedAgent);
             }
+        } else if (in_fight) {
+            // FIGHT wheel mode: A=send pick, B=RUN (stop)
+            if (kDown & KEY_A) {
+                int highlight = ui_fight_get_highlight();
+                if (highlight >= 0 && highlight < agents[selectedAgent].option_count) {
+                    printf("Button A: pick option %d\n", highlight);
+                    network_send_pick(selectedAgent, highlight);
+                }
+            }
+            if (kDown & KEY_B) {
+                printf("Button B: RUN (stop)\n");
+                network_send_run(selectedAgent);
+            }
         }
 
         // Y = toggle auto-edit (works anytime)
@@ -179,42 +206,81 @@ int main(int argc, char* argv[]) {
             printf("Button Y: auto-edit %s\n", auto_edit ? "ON" : "OFF");
         }
 
-        // Circle pad for scrolling tool detail (debounced)
+        // Circle pad for navigation (debounced)
         if (scroll_cooldown > 0) scroll_cooldown--;
         circlePosition cpad;
         hidCircleRead(&cpad);
         if (scroll_cooldown == 0) {
-            if (cpad.dy > 40) {
-                ui_scroll_detail(-1);  // stick up = scroll up
-                scroll_cooldown = 8;   // ~8 frames between scrolls
-            } else if (cpad.dy < -40) {
-                ui_scroll_detail(1);   // stick down = scroll down
-                scroll_cooldown = 8;
+            if (in_prompt) {
+                // In prompt mode, circle pad scrolls tool detail
+                if (cpad.dy > 40) {
+                    ui_scroll_detail(-1);
+                    scroll_cooldown = 8;
+                } else if (cpad.dy < -40) {
+                    ui_scroll_detail(1);
+                    scroll_cooldown = 8;
+                }
+            } else if (in_fight) {
+                // In FIGHT mode, circle pad navigates options
+                if (cpad.dy > 40) {
+                    ui_fight_highlight_up();
+                    scroll_cooldown = 10;  // Slightly slower for menu navigation
+                } else if (cpad.dy < -40) {
+                    int highlight = ui_fight_get_highlight();
+                    if (highlight < agents[selectedAgent].option_count - 1) {
+                        ui_fight_highlight_down();
+                    }
+                    scroll_cooldown = 10;
+                }
             }
         }
 
-        // D-pad left/right for precise single-line scrolling
-        if (kDown & KEY_LEFT) {
-            ui_scroll_detail(-1);
-        }
-        if (kDown & KEY_RIGHT) {
-            ui_scroll_detail(1);
+        // D-pad navigation depends on mode
+        if (in_fight) {
+            // D-pad up/down navigates FIGHT wheel
+            if (kDown & KEY_UP) {
+                ui_fight_highlight_up();
+            }
+            if (kDown & KEY_DOWN) {
+                int highlight = ui_fight_get_highlight();
+                if (highlight < agents[selectedAgent].option_count - 1) {
+                    ui_fight_highlight_down();
+                }
+            }
+            // D-pad left/right still switches agents in FIGHT mode
+            if (kDown & KEY_LEFT && agent_count > 0) {
+                selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
+                ui_fight_set_highlight(0);  // Reset highlight when switching
+            }
+            if (kDown & KEY_RIGHT && agent_count > 0) {
+                selectedAgent = (selectedAgent + 1) % agent_count;
+                ui_fight_set_highlight(0);  // Reset highlight when switching
+            }
+        } else {
+            // In prompt mode or no options: D-pad scrolls detail
+            if (kDown & KEY_LEFT) {
+                ui_scroll_detail(-1);
+            }
+            if (kDown & KEY_RIGHT) {
+                ui_scroll_detail(1);
+            }
+            // D-pad up/down switches agents
+            if (kDown & KEY_DOWN && agent_count > 0) {
+                selectedAgent = (selectedAgent + 1) % agent_count;
+            }
+            if (kDown & KEY_UP && agent_count > 0) {
+                selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
+            }
         }
 
-        // D-pad up/down to switch agents
-        if (kDown & KEY_DOWN && agent_count > 0) {
-            selectedAgent = (selectedAgent + 1) % agent_count;
-        }
-        if (kDown & KEY_UP && agent_count > 0) {
-            selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
-        }
-
-        // L/R bumpers to cycle selected agent
+        // L/R bumpers always cycle selected agent
         if (kDown & KEY_R && agent_count > 0) {
             selectedAgent = (selectedAgent + 1) % agent_count;
+            ui_fight_set_highlight(0);  // Reset highlight when switching
         }
         if (kDown & KEY_L && agent_count > 0) {
             selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
+            ui_fight_set_highlight(0);  // Reset highlight when switching
         }
 
         // Render (always draw first so real 3DS shows UI before any blocking connect)

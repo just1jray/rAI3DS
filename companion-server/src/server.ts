@@ -10,7 +10,9 @@ import type {
   SessionEndHook,
   StopHook,
   PendingPermission,
+  FightOption,
 } from "./types";
+import { generateOptions } from "./options";
 import type { ServerWebSocket } from "bun";
 
 const PORT = 3333;
@@ -21,7 +23,7 @@ const PERMISSION_TIMEOUT_MS = 90_000; // 90 seconds before auto-deny
 // In-memory state — one per slot
 const agentStates: AgentStatus[] = [];
 for (let i = 0; i < MAX_SLOTS; i++) {
-  agentStates.push({
+  const initialState: AgentStatus = {
     name: i === 0 ? "claude" : `agent-${i}`,
     state: "idle",
     progress: -1,
@@ -30,7 +32,12 @@ for (let i = 0; i < MAX_SLOTS; i++) {
     contextPercent: 0,
     slot: i,
     active: false,
-  });
+    options: [],
+    lastBeat: "",
+  };
+  // Generate initial options
+  initialState.options = generateOptions(initialState);
+  agentStates.push(initialState);
 }
 
 // WebSocket clients (Bun native)
@@ -72,6 +79,9 @@ function broadcast(data: string) {
 
 function broadcastSlotState(slot: number) {
   const state = agentStates[slot];
+  // Regenerate options based on current state
+  state.options = generateOptions(state);
+
   const message: AgentStatusMessage = {
     type: "agent_status",
     agent: state.name,
@@ -85,6 +95,8 @@ function broadcastSlotState(slot: number) {
     autoEdit: autoEditEnabled,
     slot: state.slot,
     active: state.active,
+    options: state.options,
+    lastBeat: state.lastBeat,
   };
   broadcast(JSON.stringify(message));
 }
@@ -114,7 +126,7 @@ function resolveSlot(sessionId?: string): number {
   if (!sessionId) return 0;
   const slot = sessionSlots.get(sessionId);
   if (slot !== undefined) return slot;
-  
+
   // Auto-assign to first available slot
   for (let i = 0; i < MAX_SLOTS; i++) {
     if (!agentStates[i].active) {
@@ -159,7 +171,7 @@ function resolvePendingPermission(slot: number, action: "yes" | "always" | "no")
 
   let behavior: "allow" | "deny";
   let message: string;
-  
+
   switch (action) {
     case "yes":
       behavior = "allow";
@@ -186,6 +198,7 @@ function resolvePendingPermission(slot: number, action: "yes" | "always" | "no")
     promptToolType: undefined,
     promptToolDetail: undefined,
     promptDescription: undefined,
+    lastBeat: action === "no" ? "Denied" : `Approved: ${pending.toolName}`,
   });
 
   return true;
@@ -198,10 +211,9 @@ async function handleWsMessage(msg: DSMessage) {
   const targetSlot = "slot" in msg ? (msg.slot ?? 0) : 0;
 
   if (msg.type === "action") {
-    // Handle permission actions from 3DS
-    const resolved = resolvePendingPermission(targetSlot, msg.action);
-    if (!resolved && msg.action === "escape") {
-      // Escape without pending permission - just clear state
+    // Handle permission actions from 3DS (yes/no/always for permission prompts)
+    if (msg.action === "escape") {
+      // Escape - clear state without resolving permission
       updateState(targetSlot, {
         state: "idle",
         message: "Cancelled",
@@ -209,7 +221,40 @@ async function handleWsMessage(msg: DSMessage) {
         promptToolDetail: undefined,
         promptDescription: undefined,
       });
+    } else {
+      // yes/no/always - resolve pending permission
+      resolvePendingPermission(targetSlot, msg.action);
     }
+  } else if (msg.type === "pick") {
+    // FIGHT wheel: user selected an option - send as prompt
+    const state = agentStates[targetSlot];
+    const option = state.options?.[msg.index];
+    if (option) {
+      console.log(`[ws] FIGHT pick slot ${targetSlot}: "${option.label}" -> "${option.fullPrompt}"`);
+      // GAP: Without tmux, we cannot directly send input to Claude CLI.
+      // The pick is logged and state updated. User would need to copy/paste or
+      // use a different input mechanism when Claude is waiting for user input.
+      updateState(targetSlot, {
+        state: "working",
+        message: `Steer: ${option.label}`,
+        lastBeat: `Steer: ${option.label}`,
+      });
+      // Log the full prompt for manual use
+      console.log(`[ws] FIGHT prompt to send: "${option.fullPrompt}"`);
+    } else {
+      console.log(`[ws] FIGHT pick: invalid index ${msg.index} for slot ${targetSlot}`);
+    }
+  } else if (msg.type === "run") {
+    // RUN command: stop/interrupt the agent (B button)
+    // GAP: No hard interrupt available without tmux. We update state and log.
+    // The user would need to manually interrupt Claude if needed.
+    console.log(`[ws] RUN (stop) requested for slot ${targetSlot}`);
+    console.log(`[ws] STOP prompt: "STOP. Please stop what you're doing immediately."`);
+    updateState(targetSlot, {
+      state: "idle",
+      message: "Stop requested",
+      lastBeat: "RUN (stop sent)",
+    });
   } else if (msg.type === "config") {
     if (msg.autoEdit !== undefined) {
       autoEditEnabled = msg.autoEdit;
@@ -217,7 +262,7 @@ async function handleWsMessage(msg: DSMessage) {
       broadcastAllSlots();
     }
   }
-  // Note: spawn_request and command types removed - no tmux management
+  // Note: spawn_request and command types not supported without tmux
 }
 
 export function startServer() {
@@ -281,6 +326,7 @@ export function startServer() {
               promptToolType: undefined,
               promptToolDetail: undefined,
               promptDescription: undefined,
+              lastBeat: `Auto: ${toolName}`,
             });
             return Response.json(makePermissionResponse("allow", "Auto-approved by rAI3DS"));
           }
@@ -296,7 +342,7 @@ export function startServer() {
 
           // Create a promise that will be resolved when 3DS responds
           const requestId = `perm-${++requestCounter}`;
-          
+
           return new Promise<Response>((resolve) => {
             const pending: PendingPermission = {
               requestId,
@@ -335,7 +381,7 @@ export function startServer() {
         }
       }
 
-      // Session start hook - registers session without tmux
+      // Session start hook - registers session
       if (path === "/hook/session-start" && req.method === "POST") {
         try {
           const body = (await req.json()) as SessionStartHook;
@@ -344,7 +390,7 @@ export function startServer() {
             console.log(`[hook] session-start (slot ${slot}): ${body.session_id}`);
             agentStates[slot].active = true;
             agentStates[slot].name = slot === 0 ? "claude" : `claude-${slot}`;
-            updateState(slot, { state: "idle", message: "Session started" });
+            updateState(slot, { state: "idle", message: "Session started", lastBeat: "Session started" });
           }
           return Response.json({ ok: true });
         } catch {
@@ -359,17 +405,17 @@ export function startServer() {
           if (body.session_id) {
             const slot = sessionSlots.get(body.session_id) ?? 0;
             console.log(`[hook] session-end (slot ${slot}): ${body.session_id}`);
-            
+
             // Clear any pending permission
             if (pendingPermissions.has(slot)) {
               const pending = pendingPermissions.get(slot)!;
               pending.resolve(makePermissionResponse("deny", "Session ended"));
               pendingPermissions.delete(slot);
             }
-            
+
             sessionSlots.delete(body.session_id);
             agentStates[slot].active = false;
-            updateState(slot, { state: "done", message: "Session ended" });
+            updateState(slot, { state: "done", message: "Session ended", lastBeat: "Session ended" });
           }
           return Response.json({ ok: true });
         } catch {
@@ -383,8 +429,17 @@ export function startServer() {
           const body = (await req.json()) as PreToolHook;
           const slot = resolveSlot(body.session_id);
           const toolName = body.tool_name || body.tool || "Unknown";
+          const toolDetail = body.tool_input ? extractToolDetail(body.tool_input) : "";
           console.log(`[hook] pre-tool (slot ${slot}): ${toolName}`);
-          // Just acknowledge - no permission control here
+
+          // Update lastBeat for top screen display
+          const beatDetail = toolDetail.length > 30 ? toolDetail.slice(0, 27) + "..." : toolDetail;
+          const lastBeat = `${toolName}${beatDetail ? `: ${beatDetail}` : ""}`;
+
+          // Only update lastBeat, don't change state (permission-request controls that)
+          agentStates[slot].lastBeat = lastBeat;
+          broadcastSlotState(slot);
+
           return Response.json({ ok: true });
         } catch (e) {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });
@@ -399,6 +454,8 @@ export function startServer() {
           const toolName = body.tool_name || body.tool || "Unknown";
           console.log(`[hook] post-tool (slot ${slot}): ${toolName}`);
 
+          const lastBeat = body.error ? `Error: ${toolName}` : `Done: ${toolName}`;
+
           updateState(slot, {
             state: body.error ? "error" : "working",
             progress: -1,
@@ -406,6 +463,7 @@ export function startServer() {
             promptToolType: undefined,
             promptToolDetail: undefined,
             promptDescription: undefined,
+            lastBeat,
           });
 
           return Response.json({ ok: true });
@@ -420,7 +478,7 @@ export function startServer() {
           const body = (await req.json()) as StopHook;
           const slot = resolveSlot(body.session_id);
           console.log(`[hook] stop (slot ${slot})`);
-          updateState(slot, { state: "idle", message: "Ready" });
+          updateState(slot, { state: "idle", message: "Ready", lastBeat: "Stopped" });
           return Response.json({ ok: true });
         } catch {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });

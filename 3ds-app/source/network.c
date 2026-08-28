@@ -116,6 +116,14 @@ bool network_is_connected(void) {
     return connected && ws_handshake_done;
 }
 
+static OptionKind parse_option_kind(const char* kind_str) {
+    if (kind_str == NULL) return OPT_KIND_STEER;
+    if (strcmp(kind_str, "question") == 0) return OPT_KIND_QUESTION;
+    if (strcmp(kind_str, "action") == 0) return OPT_KIND_ACTION;
+    if (strcmp(kind_str, "meta") == 0) return OPT_KIND_META;
+    return OPT_KIND_STEER;
+}
+
 static void parse_message(const char* json, Agent* agents, int* agent_count) {
     cJSON* root = cJSON_Parse(json);
     if (root == NULL) return;
@@ -257,6 +265,56 @@ static void parse_message(const char* json, Agent* agents, int* agent_count) {
         agents[idx].prompt_description[0] = '\0';
     }
 
+    // Parse FIGHT wheel options
+    cJSON* options = cJSON_GetObjectItem(root, "options");
+    if (options && cJSON_IsArray(options)) {
+        int opt_count = cJSON_GetArraySize(options);
+        if (opt_count > MAX_OPTIONS) opt_count = MAX_OPTIONS;
+        agents[idx].option_count = opt_count;
+
+        for (int i = 0; i < opt_count; i++) {
+            cJSON* opt = cJSON_GetArrayItem(options, i);
+            if (!opt) continue;
+
+            cJSON* labelJ = cJSON_GetObjectItem(opt, "label");
+            cJSON* promptJ = cJSON_GetObjectItem(opt, "fullPrompt");
+            cJSON* kindJ = cJSON_GetObjectItem(opt, "kind");
+
+            agents[idx].options[i].index = i;
+
+            if (labelJ && cJSON_IsString(labelJ)) {
+                strncpy(agents[idx].options[i].label, labelJ->valuestring, OPTION_LABEL_LEN - 1);
+                agents[idx].options[i].label[OPTION_LABEL_LEN - 1] = '\0';
+            } else {
+                agents[idx].options[i].label[0] = '\0';
+            }
+
+            if (promptJ && cJSON_IsString(promptJ)) {
+                strncpy(agents[idx].options[i].full_prompt, promptJ->valuestring, OPTION_PROMPT_LEN - 1);
+                agents[idx].options[i].full_prompt[OPTION_PROMPT_LEN - 1] = '\0';
+            } else {
+                agents[idx].options[i].full_prompt[0] = '\0';
+            }
+
+            if (kindJ && cJSON_IsString(kindJ)) {
+                agents[idx].options[i].kind = parse_option_kind(kindJ->valuestring);
+            } else {
+                agents[idx].options[i].kind = OPT_KIND_STEER;
+            }
+        }
+    } else {
+        agents[idx].option_count = 0;
+    }
+
+    // Parse lastBeat for top screen status
+    cJSON* lastBeat = cJSON_GetObjectItem(root, "lastBeat");
+    if (lastBeat && cJSON_IsString(lastBeat)) {
+        strncpy(agents[idx].last_beat, lastBeat->valuestring, sizeof(agents[idx].last_beat) - 1);
+        agents[idx].last_beat[sizeof(agents[idx].last_beat) - 1] = '\0';
+    } else {
+        agents[idx].last_beat[0] = '\0';
+    }
+
     // Sync auto-edit state from server
     cJSON* autoEdit = cJSON_GetObjectItem(root, "autoEdit");
     if (autoEdit && cJSON_IsBool(autoEdit)) {
@@ -396,6 +454,22 @@ void network_send_config(const char* agent, bool auto_edit) {
     snprintf(json, sizeof(json),
         "{\"type\":\"config\",\"agent\":\"%s\",\"autoEdit\":%s}",
         agent, auto_edit ? "true" : "false");
+    send_ws_frame(json);
+}
+
+void network_send_pick(int slot, int index) {
+    char json[128];
+    snprintf(json, sizeof(json),
+        "{\"type\":\"pick\",\"slot\":%d,\"index\":%d}",
+        slot, index);
+    send_ws_frame(json);
+}
+
+void network_send_run(int slot) {
+    char json[64];
+    snprintf(json, sizeof(json),
+        "{\"type\":\"run\",\"slot\":%d}",
+        slot);
     send_ws_frame(json);
 }
 

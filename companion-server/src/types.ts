@@ -1,6 +1,14 @@
 // Agent types
 export type AgentState = "working" | "waiting" | "idle" | "error" | "done";
 
+// FIGHT wheel option (Mass Effect paraphrase / Pokémon move style)
+export interface FightOption {
+  index: number;        // 0-5 position in wheel
+  label: string;        // Short display text (fits 3DS bottom screen)
+  fullPrompt: string;   // Full prompt sent to agent
+  kind: "steer" | "question" | "action" | "meta";  // For visual styling
+}
+
 // State stored per agent slot
 export interface AgentStatus {
   name: string;
@@ -14,6 +22,8 @@ export interface AgentStatus {
   promptDescription?: string;
   slot: number;           // 0-3 party position
   active: boolean;        // true if slot has a live session
+  options?: FightOption[]; // FIGHT wheel options (3-6 items)
+  lastBeat?: string;       // Last significant agent action (for top screen)
 }
 
 // PermissionRequest hook payload from Claude Code
@@ -93,6 +103,8 @@ export interface AgentStatusMessage {
   autoEdit?: boolean;
   slot: number;
   active: boolean;
+  options?: FightOption[];  // FIGHT wheel options
+  lastBeat?: string;         // Last agent beat for top screen
 }
 
 export interface SpawnResultMessage {
@@ -128,7 +140,20 @@ export interface SpawnRequest {
   slot?: number;
 }
 
-export type DSMessage = UserAction | UserCommand | UserConfig | SpawnRequest;
+// FIGHT wheel pick - user selected an option
+export interface UserPick {
+  type: "pick";
+  slot: number;
+  index: number;  // Which option (0-5)
+}
+
+// RUN command - stop/interrupt agent (B button)
+export interface UserRun {
+  type: "run";
+  slot: number;
+}
+
+export type DSMessage = UserAction | UserCommand | UserConfig | SpawnRequest | UserPick | UserRun;
 
 // Pending permission request (held HTTP response)
 export interface PendingPermission {

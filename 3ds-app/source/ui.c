@@ -72,6 +72,16 @@ static int detail_scroll = 0;
 static int detail_total_lines = 0;
 static char last_tool_detail[1024] = {0};
 
+// FIGHT wheel state
+static int fight_highlight = 0;  // Currently highlighted option (0-5)
+
+// FIGHT wheel layout constants
+#define FIGHT_OPTION_X      10
+#define FIGHT_OPTION_W      300
+#define FIGHT_OPTION_H      30
+#define FIGHT_OPTION_GAP    4
+#define FIGHT_OPTION_START_Y 60  // Below party slots
+
 void ui_init(void) {
     clrBase     = C2D_Color32(0x1e, 0x1e, 0x2e, 0xFF);
     clrMantle   = C2D_Color32(0x18, 0x18, 0x25, 0xFF);
@@ -215,6 +225,65 @@ static u32 context_color(int percent) {
     return clrTeal;
 }
 
+// Get color for FIGHT option kind (Pokémon move type coloring)
+static u32 option_kind_color(OptionKind kind) {
+    switch (kind) {
+        case OPT_KIND_STEER:    return clrBlue;     // Blue for steering/direction
+        case OPT_KIND_QUESTION: return clrMauve;    // Purple for questions
+        case OPT_KIND_ACTION:   return clrGreen;    // Green for actions
+        case OPT_KIND_META:     return clrPeach;    // Orange for meta/info
+        default:               return clrBlue;
+    }
+}
+
+// Draw a single FIGHT wheel option (Pokémon battle menu style)
+static void draw_fight_option(float x, float y, float w, float h,
+                              FightOption* opt, bool highlighted) {
+    // Background - highlighted options get brighter background
+    u32 bgColor = highlighted ? clrSurface1 : clrMantle;
+    C2D_DrawRectSolid(x, y, 0, w, h, bgColor);
+
+    // Left accent bar (colored by kind, like Pokémon move types)
+    u32 accentColor = option_kind_color(opt->kind);
+    float accentW = highlighted ? 6 : 4;
+    C2D_DrawRectSolid(x, y, 0, accentW, h, accentColor);
+
+    // Selection indicator arrow if highlighted
+    if (highlighted) {
+        // Draw a triangle/arrow on the left
+        C2D_DrawRectSolid(x + 8, y + h/2 - 4, 0, 8, 8, clrText);
+    }
+
+    // Option label
+    C2D_Text txtLabel;
+    C2D_TextParse(&txtLabel, textBuf, opt->label);
+    C2D_TextOptimize(&txtLabel);
+    float textX = highlighted ? x + 22 : x + 14;
+    float textScale = highlighted ? 0.55f : 0.5f;
+    u32 textColor = highlighted ? clrText : clrSubtext1;
+    C2D_DrawText(&txtLabel, C2D_WithColor, textX, y + (h - 18*textScale)/2, 0,
+                 textScale, textScale, textColor);
+
+    // Border
+    if (highlighted) {
+        draw_border(x, y, w, h, accentColor);
+    } else {
+        draw_border(x, y, w, h, clrSurface1);
+    }
+}
+
+// Draw the FIGHT wheel (all options)
+static void draw_fight_wheel(float startX, float startY, Agent* agent) {
+    if (agent == NULL || agent->option_count == 0) return;
+
+    for (int i = 0; i < agent->option_count && i < MAX_OPTIONS; i++) {
+        float y = startY + i * (FIGHT_OPTION_H + FIGHT_OPTION_GAP);
+        bool highlighted = (i == fight_highlight);
+        draw_fight_option(startX, y, FIGHT_OPTION_W, FIGHT_OPTION_H,
+                         &agent->options[i], highlighted);
+    }
+}
+
 // Draw a single creature slot (for party lineup)
 static void draw_creature_slot(float x, float y, float w, float h,
                                 int slot_idx, Agent* agent, bool is_selected,
@@ -306,10 +375,18 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_Text txtName;
         C2D_TextParse(&txtName, textBuf, agent->name);
         C2D_TextOptimize(&txtName);
-        C2D_DrawText(&txtName, C2D_WithColor, 70, 36, 0, 0.7f, 0.7f, clrText);
+        C2D_DrawText(&txtName, C2D_WithColor, 70, 32, 0, 0.65f, 0.65f, clrText);
 
         // State pill
-        draw_state_pill(310, 38, agent->state, 0.5f);
+        draw_state_pill(260, 30, agent->state, 0.45f);
+
+        // Last beat (recent activity)
+        if (agent->last_beat[0] != '\0') {
+            C2D_Text txtBeat;
+            C2D_TextParse(&txtBeat, textBuf, agent->last_beat);
+            C2D_TextOptimize(&txtBeat);
+            C2D_DrawText(&txtBeat, C2D_WithColor, 70, 52, 0, 0.4f, 0.4f, clrSubtext0);
+        }
 
         // Context section (y=85)
         C2D_Text txtCtxLabel;
@@ -607,10 +684,10 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_DrawText(&txtNoHint, C2D_WithColor, BTN_NO_X + 33, BTN_Y + 42, 0, 0.4f, 0.4f, clrCrust);
 
     } else {
-        // ========== IDLE MODE LAYOUT ==========
+        // ========== FIGHT MODE LAYOUT (when not in permission prompt) ==========
 
-        // Party lineup (y=0-70, creatures at scale 3)
-        float slot_h = 70;
+        // Compact party lineup at top (y=0-50)
+        float slot_h = 50;
         for (int i = 0; i < SLOT_COUNT; i++) {
             float sx = SLOT_START_X + i * (SLOT_W + SLOT_GAP);
             Agent* a = (i < agent_count) ? &agents[i] : NULL;
@@ -618,16 +695,34 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
                               anims ? &anims[i] : NULL);
         }
 
-        // Selected creature showcase (y=75-195)
-        if (selected_agent) {
-            C2D_DrawRectSolid(10, 75, 0, BOT_WIDTH - 20, 120, clrMantle);
-            draw_border(10, 75, BOT_WIDTH - 20, 120, clrSurface1);
+        // FIGHT wheel (y=55-210)
+        if (selected_agent && selected_agent->option_count > 0) {
+            // Title bar for FIGHT menu
+            C2D_DrawRectSolid(0, 52, 0, BOT_WIDTH, 18, clrCrust);
+            C2D_Text txtFight;
+            C2D_TextParse(&txtFight, textBuf, "FIGHT");
+            C2D_TextOptimize(&txtFight);
+            C2D_DrawText(&txtFight, C2D_WithColor, 12, 53, 0, 0.5f, 0.5f, clrLavender);
+
+            // State indicator
+            draw_state_pill(BOT_WIDTH - 80, 53, selected_agent->state, 0.4f);
+
+            // Draw FIGHT wheel options
+            draw_fight_wheel(FIGHT_OPTION_X, 72, selected_agent);
+
+            // Hint bar at bottom (above auto-edit)
+            C2D_DrawRectSolid(0, 188, 0, BOT_WIDTH, 5, clrSurface1);
+
+        } else if (selected_agent) {
+            // No options - show simplified view
+            C2D_DrawRectSolid(10, 55, 0, BOT_WIDTH - 20, 130, clrMantle);
+            draw_border(10, 55, BOT_WIDTH - 20, 130, clrSurface1);
 
             // Large creature (scale 5 = 80x80)
             if (anims) {
                 const CreatureFrame* frame = anim_current_frame(&anims[selected]);
                 if (frame) {
-                    draw_creature(20, 80, 5, frame);
+                    draw_creature(20, 60, 5, frame);
                 }
             }
 
@@ -638,45 +733,24 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
             C2D_Text txtName;
             C2D_TextParse(&txtName, textBuf, selected_agent->name);
             C2D_TextOptimize(&txtName);
-            C2D_DrawText(&txtName, C2D_WithColor, infoX, 80, 0, 0.6f, 0.6f, clrText);
+            C2D_DrawText(&txtName, C2D_WithColor, infoX, 60, 0, 0.6f, 0.6f, clrText);
 
             // State pill
-            draw_state_pill(infoX, 98, selected_agent->state, 0.45f);
+            draw_state_pill(infoX, 78, selected_agent->state, 0.45f);
 
             // Context bar
             C2D_Text txtCtx;
             C2D_TextParse(&txtCtx, textBuf, "Context");
             C2D_TextOptimize(&txtCtx);
-            C2D_DrawText(&txtCtx, C2D_WithColor, infoX, 118, 0, 0.35f, 0.35f, clrSubtext0);
-            draw_bar(infoX, 132, 180, 10, selected_agent->context_percent,
+            C2D_DrawText(&txtCtx, C2D_WithColor, infoX, 98, 0, 0.35f, 0.35f, clrSubtext0);
+            draw_bar(infoX, 112, 180, 10, selected_agent->context_percent,
                      context_color(selected_agent->context_percent));
 
-            // Current tool info
-            if (selected_agent->prompt_tool_type[0] != '\0') {
-                C2D_Text txtTool;
-                char toolBuf[80];
-                snprintf(toolBuf, sizeof(toolBuf), "%.70s", selected_agent->prompt_tool_type);
-                C2D_TextParse(&txtTool, textBuf, toolBuf);
-                C2D_TextOptimize(&txtTool);
-                C2D_DrawText(&txtTool, C2D_WithColor, infoX, 150, 0, 0.4f, 0.4f, clrPeach);
-
-                if (selected_agent->prompt_tool_detail[0] != '\0') {
-                    C2D_Text txtDetail;
-                    char detBuf[80];
-                    snprintf(detBuf, sizeof(detBuf), "%.70s", selected_agent->prompt_tool_detail);
-                    C2D_TextParse(&txtDetail, textBuf, detBuf);
-                    C2D_TextOptimize(&txtDetail);
-                    C2D_DrawText(&txtDetail, C2D_WithColor, infoX, 165, 0, 0.35f, 0.35f, clrText);
-                }
-            } else {
-                C2D_Text txtState;
-                char stateBuf[32];
-                snprintf(stateBuf, sizeof(stateBuf), "%s...", state_to_string(selected_agent->state));
-                C2D_TextParse(&txtState, textBuf, stateBuf);
-                C2D_TextOptimize(&txtState);
-                C2D_DrawText(&txtState, C2D_WithColor, infoX, 150, 0, 0.5f, 0.5f,
-                             state_to_color(selected_agent->state));
-            }
+            // Message
+            C2D_Text txtMsg;
+            C2D_TextParse(&txtMsg, textBuf, "Waiting for options...");
+            C2D_TextOptimize(&txtMsg);
+            C2D_DrawText(&txtMsg, C2D_WithColor, infoX, 135, 0, 0.45f, 0.45f, clrSubtext0);
         }
     }
 
@@ -694,7 +768,12 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
     // Status bar (y=225-240)
     C2D_DrawRectSolid(0, 225, 0, BOT_WIDTH, 15, clrCrust);
     C2D_Text txtStatus;
-    C2D_TextParse(&txtStatus, textBuf, "L/R: Switch   A:Yes B:No X:Always Y:Auto");
+    // Different hints based on mode
+    if (prompt) {
+        C2D_TextParse(&txtStatus, textBuf, "L/R: Switch   A:Yes B:No X:Always");
+    } else {
+        C2D_TextParse(&txtStatus, textBuf, "D-Pad: Select   A:Send   B:RUN(Stop)");
+    }
     C2D_TextOptimize(&txtStatus);
     C2D_DrawText(&txtStatus, C2D_WithColor, 10, 227, 0, 0.35f, 0.35f, clrOverlay0);
 }
@@ -752,4 +831,47 @@ void ui_scroll_detail(int direction) {
     int max_scroll = detail_total_lines - 3;
     if (max_scroll < 0) max_scroll = 0;
     if (detail_scroll > max_scroll) detail_scroll = max_scroll;
+}
+
+// ========== FIGHT WHEEL CONTROLS ==========
+
+void ui_fight_set_highlight(int index) {
+    if (index < 0) index = 0;
+    if (index >= MAX_OPTIONS) index = MAX_OPTIONS - 1;
+    fight_highlight = index;
+}
+
+int ui_fight_get_highlight(void) {
+    return fight_highlight;
+}
+
+void ui_fight_highlight_up(void) {
+    if (fight_highlight > 0) {
+        fight_highlight--;
+    }
+}
+
+void ui_fight_highlight_down(void) {
+    fight_highlight++;
+    // Clamping to option_count is done at usage site since we don't track it here
+}
+
+int ui_touch_fight_option(touchPosition touch, int option_count) {
+    if (option_count <= 0) return -1;
+
+    // Check each option's hitbox (large hitboxes for reliability)
+    for (int i = 0; i < option_count && i < MAX_OPTIONS; i++) {
+        float y = 72 + i * (FIGHT_OPTION_H + FIGHT_OPTION_GAP);
+        // Expanded hitbox for touch reliability
+        float hitX = FIGHT_OPTION_X - 5;
+        float hitW = FIGHT_OPTION_W + 10;
+        float hitY = y - 2;
+        float hitH = FIGHT_OPTION_H + 4;
+
+        if (touch.px >= hitX && touch.px <= hitX + hitW &&
+            touch.py >= hitY && touch.py <= hitY + hitH) {
+            return i;
+        }
+    }
+    return -1;
 }

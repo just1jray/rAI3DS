@@ -9,7 +9,7 @@ Inspired by:
 - https://vibecraft.sh/
 - https://github.com/stevysmith/clawdgotchi
 
-**Status:** MVP completed with HTTP hook architecture (no tmux required)
+**Status:** MVP with HTTP hooks + FIGHT wheel (first navigational menu)
 
 ## How It Works
 
@@ -40,6 +40,41 @@ I love the 3DS, and I have always wanted to build a homebrew app. Vibe coding ha
 - Prompting with the 3DS mic (future: local whisper model)
 - Nested menus with prompts, commands, skills, plugins, and more
 - Add support for other agent providers (Cursor, Codex, Gemini, etc.)
+
+## FIGHT Menu (Current Feature)
+
+The FIGHT wheel is a Mass Effect-style dialogue / Pokémon move-style menu for steering agents:
+
+**Bottom Screen:**
+- Shows 3-6 short generated options based on agent state and context
+- D-pad (or Circle Pad) highlights options
+- **A button**: Send selected option as a prompt to the agent (logged for manual use)
+- **B button**: RUN (sends stop request)
+- Touch: Large hitboxes for each option (tap to select)
+
+**Top Screen:**
+- Shows agent status, context usage, and last beat (recent activity)
+
+**Option Generation:**
+- Heuristic + template-based (no paid API required)
+- Context-aware: adapts to current tool, file paths, commands
+- State-aware: different options for idle, working, error, done states
+
+**GAP:** Without tmux, pick/run cannot directly inject text into Claude CLI. Prompts are logged for manual use or future integration with Claude's input hooks.
+
+### Testing in Azahar (3DS Emulator)
+
+**Important:** Use D-pad + A/B buttons as the primary controls. Touch hitboxes may be unreliable in the emulator.
+
+1. Build the 3DS app: `docker compose run --rm 3ds-build`
+2. Start companion server: `cd companion-server && bun run dev`
+3. Load `3ds-app/raids.3dsx` in Azahar
+4. Navigate options with D-pad Up/Down
+5. Press A to send the highlighted option
+6. Press B to RUN (stop) the agent
+7. L/R bumpers or D-pad Left/Right to switch between agents
+
+**Note:** The letter key "A" on your keyboard is NOT the 3DS A button. Use the emulator's button mappings.
 
 ## Quick Start
 
@@ -109,11 +144,12 @@ Copy `raids.3dsx` to your 3DS SD card or run it in Azahar.
 
 | Button | Action |
 |--------|--------|
-| **A** | Approve permission (yes) |
-| **B** | Deny permission (no) |
+| **A** | Approve permission (yes) / Send FIGHT option |
+| **B** | Deny permission (no) / RUN (stop) |
 | **X** | Always approve this tool type |
 | **Y** | Toggle auto-edit mode |
-| **D-pad/L/R** | Switch selected agent |
+| **D-pad Up/Down** | Navigate FIGHT options |
+| **D-pad Left/Right, L/R** | Switch selected agent |
 
 ## Testing
 
@@ -121,9 +157,15 @@ Copy `raids.3dsx` to your 3DS SD card or run it in Azahar.
 # Run the test script (proves PermissionRequest hold-queue works)
 ./scripts/test-permission-hook.sh
 
+# Test FIGHT wheel protocol (options, pick, run)
+./scripts/test-fight-wheel.sh
+
 # Manual WebSocket testing
 wscat -c ws://localhost:3333
 # Send: {"type":"action","agent":"claude","action":"yes","slot":0}
+# Test pick/run:
+# {"type":"pick","slot":0,"index":0}
+# {"type":"run","slot":0}
 ```
 
 ## Project Structure
@@ -137,6 +179,7 @@ rAI3DS/
 │   │   ├── server.ts  # HTTP hooks + WebSocket + permission hold-queue
 │   │   ├── hooks.ts   # Hook installer (HTTP hooks)
 │   │   ├── types.ts   # TypeScript types
+│   │   ├── options.ts # FIGHT wheel option generator
 │   │   └── context.ts # Context tracking
 │   └── raids.sh       # Launcher script
 ├── plans/             # Design documents
