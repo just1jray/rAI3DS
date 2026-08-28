@@ -19,6 +19,7 @@
 static int sock = -1;
 static bool connected = false;
 static bool ws_handshake_done = false;
+static bool ever_connected = false;  // Track if we've ever had a successful connection
 static char recv_buf[RECV_BUF_SIZE];
 static int recv_buf_len = 0;
 static bool server_auto_edit = false;
@@ -110,6 +111,9 @@ void network_disconnect(void) {
     }
     connected = false;
     ws_handshake_done = false;
+    // Clear receive buffer to avoid stale data on reconnect
+    recv_buf_len = 0;
+    recv_buf[0] = '\0';
 }
 
 bool network_is_connected(void) {
@@ -346,6 +350,30 @@ static void process_ws_frame(const unsigned char* data, int len, Agent* agents, 
     }
 }
 
+// Send a WebSocket pong response
+static void send_ws_pong(const unsigned char* payload, int payload_len) {
+    if (sock < 0 || !ws_handshake_done) return;
+    if (payload_len > 125) return;  // Pong payload must be small
+
+    unsigned char frame[256];
+    int offset = 0;
+
+    frame[offset++] = 0x8A;  // FIN + pong opcode
+    frame[offset++] = 0x80 | payload_len;  // Masked
+
+    // Masking key
+    unsigned char mask[4] = {0x12, 0x34, 0x56, 0x78};
+    memcpy(frame + offset, mask, 4);
+    offset += 4;
+
+    // Masked payload
+    for (int i = 0; i < payload_len; i++) {
+        frame[offset++] = payload[i] ^ mask[i % 4];
+    }
+
+    send(sock, frame, offset, 0);
+}
+
 void network_poll(Agent* agents, int* agent_count) {
     if (sock < 0) return;
 
@@ -357,8 +385,9 @@ void network_poll(Agent* agents, int* agent_count) {
             recv_buf_len += n;
             recv_buf[recv_buf_len] = '\0';
         } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-            // Connection closed or error
-            connected = false;
+            // Connection closed or error - fully disconnect to enable clean reconnect
+            printf("Connection dropped (recv=%d, errno=%d)\n", n, errno);
+            network_disconnect();
             return;
         }
     }
@@ -369,11 +398,14 @@ void network_poll(Agent* agents, int* agent_count) {
         if (end) {
             if (strstr(recv_buf, "101") != NULL) {
                 ws_handshake_done = true;
+                ever_connected = true;  // Mark that we've connected at least once
+                printf("WebSocket handshake complete\n");
                 int handshake_len = (end - recv_buf) + 4;
                 memmove(recv_buf, recv_buf + handshake_len, recv_buf_len - handshake_len);
                 recv_buf_len -= handshake_len;
             } else {
                 // Handshake failed
+                printf("WebSocket handshake failed\n");
                 network_disconnect();
                 return;
             }
@@ -383,6 +415,7 @@ void network_poll(Agent* agents, int* agent_count) {
 
     // Process WebSocket frames
     while (recv_buf_len >= 2) {
+        unsigned char opcode = recv_buf[0] & 0x0F;
         int payload_len = recv_buf[1] & 0x7F;
         int header_len = 2;
         if (payload_len == 126) header_len = 4;
@@ -395,7 +428,20 @@ void network_poll(Agent* agents, int* agent_count) {
         int frame_len = header_len + payload_len;
         if (recv_buf_len < frame_len) break;
 
-        process_ws_frame((unsigned char*)recv_buf, frame_len, agents, agent_count);
+        // Handle different opcodes
+        if (opcode == 0x08) {
+            // Close frame - server is closing connection
+            printf("Received WebSocket close frame\n");
+            network_disconnect();
+            return;
+        } else if (opcode == 0x09) {
+            // Ping frame - respond with pong
+            send_ws_pong((unsigned char*)recv_buf + header_len, payload_len);
+        } else if (opcode == 0x01) {
+            // Text frame - process message
+            process_ws_frame((unsigned char*)recv_buf, frame_len, agents, agent_count);
+        }
+        // Ignore other opcodes (pong 0x0A, binary 0x02, etc.)
 
         memmove(recv_buf, recv_buf + frame_len, recv_buf_len - frame_len);
         recv_buf_len -= frame_len;
@@ -475,4 +521,8 @@ void network_send_run(int slot) {
 
 bool network_get_auto_edit(void) {
     return server_auto_edit;
+}
+
+bool network_ever_connected(void) {
+    return ever_connected;
 }

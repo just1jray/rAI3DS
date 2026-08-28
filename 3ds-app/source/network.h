@@ -42,4 +42,7 @@ void network_send_run(int slot);
 // Get server-synced auto-edit state (updated from broadcasts)
 bool network_get_auto_edit(void);
 
+// Check if we've ever successfully connected (for UI: first connect vs reconnect)
+bool network_ever_connected(void);
+
 #endif // NETWORK_H

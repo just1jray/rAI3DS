@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "config.h"
 #include "creature.h"
+#include "network.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -566,10 +567,14 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
 
     // Connection status — disconnected screen
     if (!connected) {
+        bool reconnecting = network_ever_connected();
+
         C2D_Text txtDisc;
-        C2D_TextParse(&txtDisc, textBuf, "Connecting...");
+        const char* statusText = reconnecting ? "Reconnecting..." : "Connecting...";
+        C2D_TextParse(&txtDisc, textBuf, statusText);
         C2D_TextOptimize(&txtDisc);
-        C2D_DrawText(&txtDisc, C2D_WithColor, 90, 95, 0, 0.8f, 0.8f, clrYellow);
+        float statusX = reconnecting ? 75 : 90;
+        C2D_DrawText(&txtDisc, C2D_WithColor, statusX, 95, 0, 0.8f, 0.8f, clrYellow);
 
         char addrBuf[64];
         snprintf(addrBuf, sizeof(addrBuf), "%s:%d", SERVER_HOST, SERVER_PORT);
@@ -579,9 +584,13 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_DrawText(&txtAddr, C2D_WithColor, 40, 120, 0, 0.5f, 0.5f, clrSubtext0);
 
         C2D_Text txtWait;
-        C2D_TextParse(&txtWait, textBuf, "First connect may take 30s");
+        const char* waitText = reconnecting 
+            ? "Connection dropped, retrying..."
+            : "First connect may take 30s";
+        C2D_TextParse(&txtWait, textBuf, waitText);
         C2D_TextOptimize(&txtWait);
-        C2D_DrawText(&txtWait, C2D_WithColor, 55, 145, 0, 0.45f, 0.45f, clrSubtext0);
+        float waitX = reconnecting ? 45 : 55;
+        C2D_DrawText(&txtWait, C2D_WithColor, waitX, 145, 0, 0.45f, 0.45f, clrSubtext0);
 
         C2D_Text txtExit;
         C2D_TextParse(&txtExit, textBuf, "START or HOME to exit");
