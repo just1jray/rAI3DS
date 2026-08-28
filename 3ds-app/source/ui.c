@@ -76,6 +76,12 @@ static char last_tool_detail[1024] = {0};
 // FIGHT wheel state
 static int fight_highlight = 0;  // Currently highlighted option (0-5)
 
+// Input feedback state (for QA/debugging)
+static char last_key_pressed[16] = {0};
+static int no_moves_flash_frames = 0;    // Frames remaining for "NO MOVES" flash
+static int run_sent_flash_frames = 0;    // Frames remaining for "RUN sent" flash
+#define FLASH_DURATION 60  // ~1 second at 60fps
+
 // FIGHT wheel layout constants
 #define FIGHT_OPTION_X      10
 #define FIGHT_OPTION_W      300
@@ -774,6 +780,29 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
     C2D_TextOptimize(&txtAutoEdit);
     C2D_DrawText(&txtAutoEdit, C2D_WithColor, AUTO_EDIT_X + 40, AUTO_EDIT_Y + 5, 0, 0.5f, 0.5f, aeTxt);
 
+    // Flash feedback overlays
+    if (no_moves_flash_frames > 0) {
+        no_moves_flash_frames--;
+        // Draw "NO MOVES" overlay
+        C2D_DrawRectSolid(60, 100, 0, 200, 40, clrRed);
+        draw_border(60, 100, 200, 40, clrText);
+        C2D_Text txtNoMoves;
+        C2D_TextParse(&txtNoMoves, textBuf, "NO MOVES!");
+        C2D_TextOptimize(&txtNoMoves);
+        C2D_DrawText(&txtNoMoves, C2D_WithColor, 110, 110, 0, 0.7f, 0.7f, clrText);
+    }
+
+    if (run_sent_flash_frames > 0) {
+        run_sent_flash_frames--;
+        // Draw "RUN sent" overlay
+        C2D_DrawRectSolid(60, 100, 0, 200, 40, clrYellow);
+        draw_border(60, 100, 200, 40, clrCrust);
+        C2D_Text txtRunSent;
+        C2D_TextParse(&txtRunSent, textBuf, "RUN sent!");
+        C2D_TextOptimize(&txtRunSent);
+        C2D_DrawText(&txtRunSent, C2D_WithColor, 115, 110, 0, 0.7f, 0.7f, clrCrust);
+    }
+
     // Status bar (y=225-240)
     C2D_DrawRectSolid(0, 225, 0, BOT_WIDTH, 15, clrCrust);
     C2D_Text txtStatus;
@@ -785,6 +814,16 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
     }
     C2D_TextOptimize(&txtStatus);
     C2D_DrawText(&txtStatus, C2D_WithColor, 10, 227, 0, 0.35f, 0.35f, clrOverlay0);
+
+    // Last key hint (small, top-right corner)
+    if (last_key_pressed[0] != '\0') {
+        C2D_Text txtLastKey;
+        char keyBuf[24];
+        snprintf(keyBuf, sizeof(keyBuf), "[%s]", last_key_pressed);
+        C2D_TextParse(&txtLastKey, textBuf, keyBuf);
+        C2D_TextOptimize(&txtLastKey);
+        C2D_DrawText(&txtLastKey, C2D_WithColor, BOT_WIDTH - 50, 2, 0, 0.35f, 0.35f, clrMauve);
+    }
 }
 
 // ========== TOUCH ZONES ==========
@@ -883,4 +922,23 @@ int ui_touch_fight_option(touchPosition touch, int option_count) {
         }
     }
     return -1;
+}
+
+// ========== INPUT FEEDBACK ==========
+
+void ui_set_last_key(const char* key) {
+    if (key) {
+        strncpy(last_key_pressed, key, sizeof(last_key_pressed) - 1);
+        last_key_pressed[sizeof(last_key_pressed) - 1] = '\0';
+    } else {
+        last_key_pressed[0] = '\0';
+    }
+}
+
+void ui_flash_no_moves(void) {
+    no_moves_flash_frames = FLASH_DURATION;
+}
+
+void ui_flash_run_sent(void) {
+    run_sent_flash_frames = FLASH_DURATION;
 }

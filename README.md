@@ -69,12 +69,39 @@ The FIGHT wheel is a Mass Effect-style dialogue / Pokémon move-style menu for s
 1. Build the 3DS app: `docker compose run --rm 3ds-build`
 2. Start companion server: `cd companion-server && bun run dev`
 3. Load `3ds-app/raids.3dsx` in Azahar
-4. Navigate options with D-pad Up/Down
-5. Press A to send the highlighted option
-6. Press B to RUN (stop) the agent
-7. L/R bumpers or D-pad Left/Right to switch between agents
+4. Connect — **the FIGHT wheel must appear immediately** (3-6 options visible without any Claude hooks)
+5. Navigate options with D-pad Up/Down
+6. Press A to send the highlighted option
+7. Press B to RUN (stop) the agent
+8. L/R bumpers or D-pad Left/Right to switch between agents
 
-**Note:** The letter key "A" on your keyboard is NOT the 3DS A button. Use the emulator's button mappings.
+#### Azahar Keyboard Bindings (CRITICAL)
+
+Azahar's **default** keyboard mapping for 3DS buttons:
+| 3DS Button | Default Keyboard Key |
+|------------|---------------------|
+| **A** | `A` |
+| **B** | `S` (NOT keyboard B!) |
+| **X** | `Q` |
+| **Y** | `W` |
+| D-pad | Arrow keys |
+| L/R | `E` / `R` |
+
+**For QA testing, you MUST rebind 3DS B → keyboard B:**
+1. In Azahar, go to **Emulation → Configure → Controls**
+2. Click on the B button mapping
+3. Press keyboard `B` to rebind
+4. Click OK to save
+
+Without this rebind, pressing keyboard B will do nothing (it's not mapped), and pressing keyboard S will trigger 3DS B (RUN/stop).
+
+**QA Verification Steps:**
+1. Connect Azahar → FIGHT wheel shows 3-6 options immediately (no Claude session needed)
+2. Press keyboard `A` → WS `pick` message sent, state updates
+3. Press keyboard `B` (after rebind) → WS `run` message sent, "RUN sent!" flash
+4. If no options (edge case), pressing A shows "NO MOVES!" flash instead of silent no-op
+
+The bottom screen shows `[A ]` or `[B ]` hint when buttons are pressed to confirm input is arriving.
 
 ## Quick Start
 

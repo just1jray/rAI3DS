@@ -50,4 +50,9 @@ void ui_fight_highlight_up(void);          // Move highlight up
 void ui_fight_highlight_down(void);        // Move highlight down
 int ui_touch_fight_option(touchPosition touch, int option_count);  // Check touch on option (returns 0-5, or -1)
 
+// Input feedback (for QA/debugging)
+void ui_set_last_key(const char* key);     // Set last key pressed (shown on screen)
+void ui_flash_no_moves(void);              // Flash "NO MOVES" feedback
+void ui_flash_run_sent(void);              // Flash "RUN sent" feedback
+
 #endif // UI_H

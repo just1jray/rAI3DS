@@ -121,7 +121,20 @@ int main(int argc, char* argv[]) {
 
         // Determine if we're in permission prompt mode or FIGHT wheel mode
         bool in_prompt = agents[selectedAgent].state == STATE_WAITING;
-        bool in_fight = !in_prompt && agents[selectedAgent].option_count > 0;
+        // FIGHT mode is active when NOT in prompt - even with zero options (A/B still work)
+        bool in_fight = !in_prompt;
+        int opt_count = agents[selectedAgent].option_count;
+
+        // Log face button presses for QA/debugging
+        if (kDown & (KEY_A | KEY_B | KEY_X | KEY_Y)) {
+            char btn_log[64] = {0};
+            if (kDown & KEY_A) strcat(btn_log, "A ");
+            if (kDown & KEY_B) strcat(btn_log, "B ");
+            if (kDown & KEY_X) strcat(btn_log, "X ");
+            if (kDown & KEY_Y) strcat(btn_log, "Y ");
+            printf("[input] Face buttons: %s (kDown=0x%08lx)\n", btn_log, (unsigned long)kDown);
+            ui_set_last_key(btn_log);
+        }
 
         // Handle touch
         if (kDown & KEY_TOUCH) {
@@ -159,11 +172,15 @@ int main(int argc, char* argv[]) {
                 }
             } else if (in_fight) {
                 // FIGHT wheel touch zones (large hitboxes)
-                int tapped_opt = ui_touch_fight_option(touch, agents[selectedAgent].option_count);
+                int tapped_opt = ui_touch_fight_option(touch, opt_count);
                 if (tapped_opt >= 0) {
                     ui_fight_set_highlight(tapped_opt);
                     printf("FIGHT touch option %d, sending pick\n", tapped_opt);
                     network_send_pick(selectedAgent, tapped_opt);
+                } else if (opt_count == 0) {
+                    // Touch in fight area but no options
+                    printf("Touch: NO MOVES (option_count=0)\n");
+                    ui_flash_no_moves();
                 }
             }
         }
@@ -185,16 +202,27 @@ int main(int argc, char* argv[]) {
             }
         } else if (in_fight) {
             // FIGHT wheel mode: A=send pick, B=RUN (stop)
+            // Always respond to A - never silently drop
             if (kDown & KEY_A) {
-                int highlight = ui_fight_get_highlight();
-                if (highlight >= 0 && highlight < agents[selectedAgent].option_count) {
+                if (opt_count > 0) {
+                    // Clamp highlight to valid range
+                    int highlight = ui_fight_get_highlight();
+                    if (highlight < 0) highlight = 0;
+                    if (highlight >= opt_count) highlight = opt_count - 1;
+                    ui_fight_set_highlight(highlight);
                     printf("Button A: pick option %d\n", highlight);
                     network_send_pick(selectedAgent, highlight);
+                } else {
+                    // No options available - show visible feedback
+                    printf("Button A: NO MOVES (option_count=0)\n");
+                    ui_flash_no_moves();
                 }
             }
+            // Always respond to B - send RUN command
             if (kDown & KEY_B) {
                 printf("Button B: RUN (stop)\n");
                 network_send_run(selectedAgent);
+                ui_flash_run_sent();
             }
         }
 
@@ -220,14 +248,14 @@ int main(int argc, char* argv[]) {
                     ui_scroll_detail(1);
                     scroll_cooldown = 8;
                 }
-            } else if (in_fight) {
-                // In FIGHT mode, circle pad navigates options
+            } else if (in_fight && opt_count > 0) {
+                // In FIGHT mode with options, circle pad navigates options
                 if (cpad.dy > 40) {
                     ui_fight_highlight_up();
-                    scroll_cooldown = 10;  // Slightly slower for menu navigation
+                    scroll_cooldown = 10;
                 } else if (cpad.dy < -40) {
                     int highlight = ui_fight_get_highlight();
-                    if (highlight < agents[selectedAgent].option_count - 1) {
+                    if (highlight < opt_count - 1) {
                         ui_fight_highlight_down();
                     }
                     scroll_cooldown = 10;
@@ -236,25 +264,33 @@ int main(int argc, char* argv[]) {
         }
 
         // D-pad navigation depends on mode
-        if (in_fight) {
-            // D-pad up/down navigates FIGHT wheel
+        if (in_fight && opt_count > 0) {
+            // D-pad up/down navigates FIGHT wheel (only when options exist)
             if (kDown & KEY_UP) {
                 ui_fight_highlight_up();
             }
             if (kDown & KEY_DOWN) {
                 int highlight = ui_fight_get_highlight();
-                if (highlight < agents[selectedAgent].option_count - 1) {
+                if (highlight < opt_count - 1) {
                     ui_fight_highlight_down();
                 }
             }
             // D-pad left/right still switches agents in FIGHT mode
             if (kDown & KEY_LEFT && agent_count > 0) {
                 selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
-                ui_fight_set_highlight(0);  // Reset highlight when switching
+                ui_fight_set_highlight(0);
             }
             if (kDown & KEY_RIGHT && agent_count > 0) {
                 selectedAgent = (selectedAgent + 1) % agent_count;
-                ui_fight_set_highlight(0);  // Reset highlight when switching
+                ui_fight_set_highlight(0);
+            }
+        } else if (in_fight) {
+            // FIGHT mode with no options - D-pad switches agents
+            if (kDown & KEY_LEFT && agent_count > 0) {
+                selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
+            }
+            if (kDown & KEY_RIGHT && agent_count > 0) {
+                selectedAgent = (selectedAgent + 1) % agent_count;
             }
         } else {
             // In prompt mode or no options: D-pad scrolls detail
