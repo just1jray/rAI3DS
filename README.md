@@ -2,21 +2,24 @@
 
 A Nintendo 3DS homebrew application that serves as a dedicated companion device for AI coding agents.
 
-Your 3DS becomes a permission remote for Claude Code — a real decision point, not a keyboard.
+Your 3DS becomes a steering controller for AI agents — Cursor and Claude Code, no keyboard required.
 
 Inspired by:
 - https://ralv.ai/
 - https://vibecraft.sh/
 - https://github.com/stevysmith/clawdgotchi
 
-**Status:** MVP with HTTP hooks + FIGHT wheel (first navigational menu)
+**Status:** MVP with HTTP hooks + FIGHT wheel + **Cursor as first-class agent**
 
 ## How It Works
 
 ```
 ┌─────────────────┐                    ┌─────────────────┐                    ┌─────────────┐
-│   Claude Code   │──[HTTP hooks]─────>│    Companion    │<══[WebSocket]═════>│     3DS     │
-│   (any shell)   │<───[response]──────│     Server      │                    │     App     │
+│  Cursor Cloud   │<──[REST API]──────>│    Companion    │<══[WebSocket]═════>│     3DS     │
+│   Agents        │                    │     Server      │                    │     App     │
+├─────────────────┤                    │                 │                    │             │
+│   Claude Code   │──[HTTP hooks]─────>│                 │                    │             │
+│   (any shell)   │<───[response]──────│                 │                    │             │
 └─────────────────┘                    └─────────────────┘                    └─────────────┘
 ```
 
@@ -35,11 +38,38 @@ Inspired by:
 I love the 3DS, and I have always wanted to build a homebrew app. Vibe coding has both opened the door for me to do this, and provided an opportunity for what the app could be. I imagine a control interface akin to playing Pokémon! I feel the menuing and turn-based style lends itself well to this use case.
 
 - Connect to and control Claude Code sessions using the 3DS as a permission remote
+- **Cursor Cloud Agents** as first-class party slots (no tmux, no Claude Code binary)
 - Real approve/deny decisions via HTTP hooks (not tmux key injection)
 - Multiple agent slots (up to 4)
 - Prompting with the 3DS mic (future: local whisper model)
 - Nested menus with prompts, commands, skills, plugins, and more
-- Add support for other agent providers (Cursor, Codex, Gemini, etc.)
+- Add support for other agent providers (Codex, Gemini, etc.)
+
+## Cursor Cloud Agents (NEW)
+
+The 3DS can now steer **Cursor Cloud Agents** directly via the Cursor API — the same way Cursor Mobile does.
+
+**Features:**
+- Auto-discovers your active Cursor cloud agents
+- L/R bumpers switch between agents
+- FIGHT wheel sends steering prompts to the selected agent
+- RUN (B button) cancels the active run
+
+**Setup:**
+
+```bash
+# Set your Cursor API key (from Cursor Dashboard → API Keys)
+export CURSOR_API_KEY="your-api-key-here"
+
+# Start the companion server
+cd companion-server && bun run dev
+```
+
+The companion server will auto-discover your Cursor cloud agents and populate party slots.
+
+**No Claude Code binary required. No Anthropic CLI. No tmux.**
+
+See [Cursor Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints) for API details.
 
 ## FIGHT Menu (Current Feature)
 
@@ -181,19 +211,23 @@ Copy `raids.3dsx` to your 3DS SD card or run it in Azahar.
 ## Testing
 
 ```bash
-# Run the test script (proves PermissionRequest hold-queue works)
-./scripts/test-permission-hook.sh
+# Test Cursor as first-class agent slot (no Claude Code required!)
+./scripts/test-cursor-slot.sh
 
 # Test FIGHT wheel protocol (options, pick, run)
 ./scripts/test-fight-wheel.sh
 
+# Test Claude Code permission hooks
+./scripts/test-permission-hook.sh
+
 # Manual WebSocket testing
 wscat -c ws://localhost:3333
-# Send: {"type":"action","agent":"claude","action":"yes","slot":0}
 # Test pick/run:
 # {"type":"pick","slot":0,"index":0}
 # {"type":"run","slot":0}
 ```
+
+**Note:** `test-cursor-slot.sh` uses a mock adapter when `CURSOR_API_KEY` is not set, so it runs without any external dependencies.
 
 ## Project Structure
 
@@ -202,13 +236,14 @@ rAI3DS/
 ├── 3ds-app/           # Nintendo 3DS homebrew app (C/libctru)
 ├── companion-server/  # Bridge server (Bun/TypeScript)
 │   ├── src/
-│   │   ├── index.ts   # Entry point
-│   │   ├── server.ts  # HTTP hooks + WebSocket + permission hold-queue
-│   │   ├── hooks.ts   # Hook installer (HTTP hooks)
-│   │   ├── types.ts   # TypeScript types
-│   │   ├── options.ts # FIGHT wheel option generator
-│   │   └── context.ts # Context tracking
-│   └── raids.sh       # Launcher script
+│   │   ├── index.ts         # Entry point
+│   │   ├── server.ts        # HTTP hooks + WebSocket + permission hold-queue
+│   │   ├── cursor-adapter.ts # Cursor Cloud Agent API adapter
+│   │   ├── hooks.ts         # Hook installer (HTTP hooks)
+│   │   ├── types.ts         # TypeScript types
+│   │   ├── options.ts       # FIGHT wheel option generator
+│   │   └── context.ts       # Context tracking
+│   └── raids.sh             # Launcher script
 ├── plans/             # Design documents
 └── scripts/           # Development utilities
 ```

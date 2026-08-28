@@ -51,6 +51,43 @@ const STATE_TEMPLATES: Record<string, FightOption[]> = {
   ],
 };
 
+// Cursor-specific templates (for cloud agents)
+const CURSOR_STATE_TEMPLATES: Record<string, FightOption[]> = {
+  idle: [
+    { index: 0, label: "Continue", fullPrompt: "Continue with the task", kind: "action" },
+    { index: 1, label: "What's next?", fullPrompt: "What should we work on next?", kind: "question" },
+    { index: 2, label: "Show progress", fullPrompt: "Summarize your progress so far", kind: "meta" },
+    { index: 3, label: "Create PR", fullPrompt: "Create a pull request for the changes", kind: "action" },
+    { index: 4, label: "Run tests", fullPrompt: "Run the tests to verify everything works", kind: "action" },
+  ],
+  working: [
+    { index: 0, label: "Keep going", fullPrompt: "Keep going, looks good", kind: "steer" },
+    { index: 1, label: "Focus on X", fullPrompt: "Focus on the main functionality first", kind: "steer" },
+    { index: 2, label: "Explain", fullPrompt: "Explain what you're doing", kind: "question" },
+    { index: 3, label: "Pause here", fullPrompt: "Pause here and show me what you have", kind: "steer" },
+    { index: 4, label: "Skip tests", fullPrompt: "Skip the tests for now, focus on implementation", kind: "steer" },
+  ],
+  error: [
+    { index: 0, label: "Try again", fullPrompt: "Try a different approach", kind: "action" },
+    { index: 1, label: "Show error", fullPrompt: "Show me the full error", kind: "meta" },
+    { index: 2, label: "Debug", fullPrompt: "Debug this step by step", kind: "steer" },
+    { index: 3, label: "Revert", fullPrompt: "Revert the failing changes", kind: "action" },
+    { index: 4, label: "Skip this", fullPrompt: "Skip this for now and continue", kind: "steer" },
+  ],
+  done: [
+    { index: 0, label: "Nice!", fullPrompt: "Nice work! Anything to improve?", kind: "steer" },
+    { index: 1, label: "Create PR", fullPrompt: "Create a pull request", kind: "action" },
+    { index: 2, label: "Run tests", fullPrompt: "Run the tests one more time", kind: "action" },
+    { index: 3, label: "Review", fullPrompt: "Show me a summary of all changes", kind: "meta" },
+    { index: 4, label: "New task", fullPrompt: "What should we work on next?", kind: "question" },
+  ],
+  waiting: [
+    { index: 0, label: "Proceed", fullPrompt: "Yes, proceed", kind: "action" },
+    { index: 1, label: "Explain", fullPrompt: "Explain what this will do", kind: "question" },
+    { index: 2, label: "Show diff", fullPrompt: "Show me the diff first", kind: "meta" },
+  ],
+};
+
 // Tool-specific options that can augment base templates
 const TOOL_AUGMENTS: Record<string, FightOption[]> = {
   Write: [
@@ -147,12 +184,18 @@ function generateContextualOptions(agent: AgentStatus): FightOption[] {
  */
 export function generateOptions(agent: AgentStatus): FightOption[] {
   const state = agent.state || "idle";
+  const source = agent.source || "claude";
+  
+  // Pick template set based on agent source
+  const templates = source === "cursor" ? CURSOR_STATE_TEMPLATES : STATE_TEMPLATES;
   
   // Start with state-based templates
-  const baseOptions = [...(STATE_TEMPLATES[state] || STATE_TEMPLATES.idle)];
+  const baseOptions = [...(templates[state] || templates.idle)];
   
-  // Add contextual options
-  const contextual = generateContextualOptions(agent);
+  // Add contextual options (not for cursor agents without tool context)
+  const contextual = source === "cursor" && !agent.promptToolType
+    ? []
+    : generateContextualOptions(agent);
   
   // Merge: put contextual first, then fill with base
   const merged: FightOption[] = [];
