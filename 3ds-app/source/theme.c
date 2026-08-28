@@ -1,6 +1,8 @@
 #include "theme.h"
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include <3ds.h>
 
 #define THEME_CFG_PATH "sdmc:/3ds/raids/theme.cfg"
@@ -214,27 +216,36 @@ void theme_cycle(void) {
 }
 
 bool theme_save(void) {
-    // Create directory if needed
-    Result rc = FSUSER_CreateDirectory(0, fsMakePath(PATH_ASCII, "/3ds"), FS_ATTRIBUTE_DIRECTORY);
-    (void)rc;  // Ignore error if exists
-    rc = FSUSER_CreateDirectory(0, fsMakePath(PATH_ASCII, "/3ds/raids"), FS_ATTRIBUTE_DIRECTORY);
-    (void)rc;
+    // Create directories via stdio (SDMC must be mounted via archiveMountSdmc)
+    int rc = mkdir("sdmc:/3ds", 0777);
+    if (rc != 0 && errno != EEXIST) {
+        printf("mkdir sdmc:/3ds failed: %d\n", errno);
+    }
+    rc = mkdir("sdmc:/3ds/raids", 0777);
+    if (rc != 0 && errno != EEXIST) {
+        printf("mkdir sdmc:/3ds/raids failed: %d\n", errno);
+    }
 
     FILE* f = fopen(THEME_CFG_PATH, "w");
     if (!f) {
-        printf("Failed to save theme config\n");
+        printf("fopen %s failed: %d\n", THEME_CFG_PATH, errno);
         return false;
     }
 
     fprintf(f, "%d\n", (int)current_theme);
+    int flush_rc = fflush(f);
+    if (flush_rc != 0) {
+        printf("fflush %s failed: %d\n", THEME_CFG_PATH, errno);
+    }
     fclose(f);
-    printf("Theme saved: %s\n", themes[current_theme]->name);
+    printf("Theme saved: %s -> %s\n", themes[current_theme]->name, THEME_CFG_PATH);
     return true;
 }
 
 bool theme_load(void) {
     FILE* f = fopen(THEME_CFG_PATH, "r");
     if (!f) {
+        printf("No theme config at %s (errno=%d)\n", THEME_CFG_PATH, errno);
         return false;
     }
 
@@ -242,12 +253,13 @@ bool theme_load(void) {
     if (fscanf(f, "%d", &id) == 1) {
         if (id >= 0 && id < THEME_COUNT) {
             current_theme = (ThemeId)id;
-            printf("Theme loaded: %s\n", themes[current_theme]->name);
+            printf("Theme loaded: %s from %s\n", themes[current_theme]->name, THEME_CFG_PATH);
             fclose(f);
             return true;
         }
     }
 
+    printf("Invalid theme id in %s\n", THEME_CFG_PATH);
     fclose(f);
     return false;
 }

@@ -156,6 +156,13 @@ Copy `raids.3dsx` to your 3DS SD card or run it in Azahar.
 
 Press **SELECT** to cycle through 4 visual themes. Theme choice is persisted to SD card (`sdmc:/3ds/raids/theme.cfg`).
 
+**Azahar verification:** After pressing SELECT to change theme, check persistence with:
+```bash
+ls ~/.local/share/azahar-emu/sdmc/3ds/raids/theme.cfg
+cat ~/.local/share/azahar-emu/sdmc/3ds/raids/theme.cfg
+```
+The file should exist and contain a theme ID (0-3) immediately after theme change, without needing to exit the emulator.
+
 | Theme | Description | Palette |
 |-------|-------------|---------|
 | **Modern** | Cleaned-up Catppuccin Mocha — dark, rounded cards, the existing rAI3DS soul | Base: `#1e1e2e`, Text: `#cdd6f4`, Accent: `#cba6f7` |

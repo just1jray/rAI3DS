@@ -41,6 +41,12 @@ int main(int argc, char* argv[]) {
     C3D_RenderTarget* topScreen = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
     C3D_RenderTarget* bottomScreen = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
 
+    // Mount SDMC for stdio (theme persistence)
+    Result sdmc_res = archiveMountSdmc();
+    if (R_FAILED(sdmc_res)) {
+        printf("SDMC mount failed: 0x%08lX\n", sdmc_res);
+    }
+
     // Initialize UI and network
     ui_init();
 
@@ -310,6 +316,7 @@ int main(int argc, char* argv[]) {
     audio_exit();
     network_exit();
     ui_exit();
+    archiveUnmountAll();
     C2D_Fini();
     C3D_Fini();
     gfxExit();
