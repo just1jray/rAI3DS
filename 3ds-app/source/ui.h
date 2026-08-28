@@ -4,6 +4,7 @@
 #include <citro2d.h>
 #include "protocol.h"
 #include "animation.h"
+#include "theme.h"
 
 // Initialize UI resources
 void ui_init(void);

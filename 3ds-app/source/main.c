@@ -10,6 +10,7 @@
 #include "animation.h"
 #include "creature.h"
 #include "audio.h"
+#include "theme.h"
 
 // Reconnection timing
 #define RECONNECT_INTERVAL 120  // frames (~2 seconds at 60fps)
@@ -39,6 +40,12 @@ int main(int argc, char* argv[]) {
     // Create render targets
     C3D_RenderTarget* topScreen = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
     C3D_RenderTarget* bottomScreen = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
+
+    // Mount SDMC for stdio (theme persistence)
+    Result sdmc_res = archiveMountSdmc();
+    if (R_FAILED(sdmc_res)) {
+        printf("SDMC mount failed: 0x%08lX\n", sdmc_res);
+    }
 
     // Initialize UI and network
     ui_init();
@@ -206,6 +213,12 @@ int main(int argc, char* argv[]) {
             printf("Button Y: auto-edit %s\n", auto_edit ? "ON" : "OFF");
         }
 
+        // SELECT = cycle theme
+        if (kDown & KEY_SELECT) {
+            theme_cycle();
+            printf("Theme: %s\n", theme_get_name());
+        }
+
         // Circle pad for navigation (debounced)
         if (scroll_cooldown > 0) scroll_cooldown--;
         circlePosition cpad;
@@ -303,6 +316,7 @@ int main(int argc, char* argv[]) {
     audio_exit();
     network_exit();
     ui_exit();
+    archiveUnmountAll();
     C2D_Fini();
     C3D_Fini();
     gfxExit();

@@ -9,7 +9,7 @@ Inspired by:
 - https://vibecraft.sh/
 - https://github.com/stevysmith/clawdgotchi
 
-**Status:** MVP with HTTP hooks + FIGHT wheel (first navigational menu)
+**Status:** MVP with HTTP hooks + FIGHT wheel + Theme system (4 switchable palettes)
 
 ## How It Works
 
@@ -148,8 +148,27 @@ Copy `raids.3dsx` to your 3DS SD card or run it in Azahar.
 | **B** | Deny permission (no) / RUN (stop) |
 | **X** | Always approve this tool type |
 | **Y** | Toggle auto-edit mode |
+| **SELECT** | Cycle through UI themes |
 | **D-pad Up/Down** | Navigate FIGHT options |
 | **D-pad Left/Right, L/R** | Switch selected agent |
+
+### UI Themes
+
+Press **SELECT** to cycle through 4 visual themes. Theme choice is persisted to SD card (`sdmc:/3ds/raids/theme.cfg`).
+
+**Azahar verification:** After pressing SELECT to change theme, check persistence with:
+```bash
+ls ~/.local/share/azahar-emu/sdmc/3ds/raids/theme.cfg
+cat ~/.local/share/azahar-emu/sdmc/3ds/raids/theme.cfg
+```
+The file should exist and contain a theme ID (0-3) immediately after theme change, without needing to exit the emulator.
+
+| Theme | Description | Palette |
+|-------|-------------|---------|
+| **Modern** | Cleaned-up Catppuccin Mocha — dark, rounded cards, the existing rAI3DS soul | Base: `#1e1e2e`, Text: `#cdd6f4`, Accent: `#cba6f7` |
+| **HOME** | Official 3DS HOME menu style — aqua/teal top bar, pale beige/white cards, friendly system UI | Base: `#d8e0e8`, Teal: `#58a8b8`, Text: `#202028` |
+| **GodMode9** | Terminal payload style — pure black, bright green monospace, sharp rectangles | Base: `#000000`, Green: `#60ff60`, Accent: `#ffd060` |
+| **Twilight** | Twilight Menu++ inspired — deep purple base, soft violet accents, elegant dark theme | Base: `#281828`, Purple: `#d080f0`, Text: `#f8d8f0` |
 
 ## Testing
 
