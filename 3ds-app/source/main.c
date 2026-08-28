@@ -10,6 +10,7 @@
 #include "animation.h"
 #include "creature.h"
 #include "audio.h"
+#include "theme.h"
 
 // Reconnection timing
 #define RECONNECT_INTERVAL 120  // frames (~2 seconds at 60fps)
@@ -204,6 +205,12 @@ int main(int argc, char* argv[]) {
             ui_set_auto_edit(auto_edit);
             network_send_config(agents[selectedAgent].name, auto_edit);
             printf("Button Y: auto-edit %s\n", auto_edit ? "ON" : "OFF");
+        }
+
+        // SELECT = cycle theme
+        if (kDown & KEY_SELECT) {
+            theme_cycle();
+            printf("Theme: %s\n", theme_get_name());
         }
 
         // Circle pad for navigation (debounced)

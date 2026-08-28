@@ -2,29 +2,9 @@
 #include "config.h"
 #include "creature.h"
 #include "network.h"
+#include "theme.h"
 #include <stdio.h>
 #include <string.h>
-
-// Catppuccin Mocha palette
-static u32 clrBase;       // #1e1e2e — screen background
-static u32 clrMantle;     // #181825 — card/panel background
-static u32 clrCrust;      // #11111b — title/footer bar background
-static u32 clrSurface0;   // #313244 — disabled buttons, inactive tabs
-static u32 clrSurface1;   // #45475a — borders, separators
-static u32 clrSurface2;   // #585b70 — progress bar borders
-static u32 clrOverlay0;   // #6c7086 — dimmed/disabled text
-static u32 clrSubtext0;   // #a6adc8 — secondary text
-static u32 clrSubtext1;   // #bac2de — brighter secondary text
-static u32 clrText;       // #cdd6f4 — primary text
-static u32 clrBlue;       // #89b4fa — working state
-static u32 clrGreen;      // #a6e3a1 — done/approve/YES
-static u32 clrRed;        // #f38ba8 — error/deny/NO
-static u32 clrYellow;     // #f9e2af — waiting state
-static u32 clrPeach;      // #fab387 — tool names
-static u32 clrMauve;      // #cba6f7 — accents, active tab
-static u32 clrLavender;   // #b4befe — highlights, title
-static u32 clrTeal;       // #94e2d5 — healthy context bar
-static u32 clrSapphire;   // #74c7ec — info accent
 
 // Text buffers
 static C2D_TextBuf textBuf;
@@ -84,26 +64,7 @@ static int fight_highlight = 0;  // Currently highlighted option (0-5)
 #define FIGHT_OPTION_START_Y 60  // Below party slots
 
 void ui_init(void) {
-    clrBase     = C2D_Color32(0x1e, 0x1e, 0x2e, 0xFF);
-    clrMantle   = C2D_Color32(0x18, 0x18, 0x25, 0xFF);
-    clrCrust    = C2D_Color32(0x11, 0x11, 0x1b, 0xFF);
-    clrSurface0 = C2D_Color32(0x31, 0x32, 0x44, 0xFF);
-    clrSurface1 = C2D_Color32(0x45, 0x47, 0x5a, 0xFF);
-    clrSurface2 = C2D_Color32(0x58, 0x5b, 0x70, 0xFF);
-    clrOverlay0 = C2D_Color32(0x6c, 0x70, 0x86, 0xFF);
-    clrSubtext0 = C2D_Color32(0xa6, 0xad, 0xc8, 0xFF);
-    clrSubtext1 = C2D_Color32(0xba, 0xc2, 0xde, 0xFF);
-    clrText     = C2D_Color32(0xcd, 0xd6, 0xf4, 0xFF);
-    clrBlue     = C2D_Color32(0x89, 0xb4, 0xfa, 0xFF);
-    clrGreen    = C2D_Color32(0xa6, 0xe3, 0xa1, 0xFF);
-    clrRed      = C2D_Color32(0xf3, 0x8b, 0xa8, 0xFF);
-    clrYellow   = C2D_Color32(0xf9, 0xe2, 0xaf, 0xFF);
-    clrPeach    = C2D_Color32(0xfa, 0xb3, 0x87, 0xFF);
-    clrMauve    = C2D_Color32(0xcb, 0xa6, 0xf7, 0xFF);
-    clrLavender = C2D_Color32(0xb4, 0xbe, 0xfe, 0xFF);
-    clrTeal     = C2D_Color32(0x94, 0xe2, 0xd5, 0xFF);
-    clrSapphire = C2D_Color32(0x74, 0xc7, 0xec, 0xFF);
-
+    theme_init();
     textBuf = C2D_TextBufNew(4096);
 }
 
@@ -112,12 +73,13 @@ void ui_exit(void) {
 }
 
 static u32 state_to_color(AgentState state) {
+    const Theme* t = theme_get();
     switch (state) {
-        case STATE_WORKING: return clrBlue;
-        case STATE_WAITING: return clrYellow;
-        case STATE_ERROR:   return clrRed;
-        case STATE_DONE:    return clrGreen;
-        default:            return clrSubtext0;
+        case STATE_WORKING: return t->blue;
+        case STATE_WAITING: return t->yellow;
+        case STATE_ERROR:   return t->red;
+        case STATE_DONE:    return t->green;
+        default:            return t->subtext0;
     }
 }
 
@@ -158,12 +120,13 @@ static void draw_dashed_border(float x, float y, float w, float h, u32 color) {
 }
 
 static void draw_bar(float x, float y, float w, float h, int percent, u32 color) {
-    C2D_DrawRectSolid(x, y, 0, w, h, clrMantle);
+    const Theme* t = theme_get();
+    C2D_DrawRectSolid(x, y, 0, w, h, t->mantle);
     if (percent > 0 && percent <= 100) {
         float fillW = (w * percent) / 100.0f;
         C2D_DrawRectSolid(x, y, 0, fillW, h, color);
     }
-    draw_border(x, y, w, h, clrSurface2);
+    draw_border(x, y, w, h, t->surface2);
 }
 
 #define WRAP_MAX_LINES 20
@@ -206,6 +169,7 @@ static int wrap_text(const char* text, float scale, float max_width_px,
 }
 
 static void draw_state_pill(float x, float y, AgentState state, float scale) {
+    const Theme* t = theme_get();
     const char* label = state_to_string(state);
     u32 bg = state_to_color(state);
     float text_width = strlen(label) * 13.0f * scale;
@@ -217,31 +181,35 @@ static void draw_state_pill(float x, float y, AgentState state, float scale) {
     C2D_Text txt;
     C2D_TextParse(&txt, textBuf, label);
     C2D_TextOptimize(&txt);
-    C2D_DrawText(&txt, C2D_WithColor, x + 6, y + 2, 0, scale, scale, clrCrust);
+    C2D_DrawText(&txt, C2D_WithColor, x + 6, y + 2, 0, scale, scale, t->textAlt);
 }
 
 static u32 context_color(int percent) {
-    if (percent > 80) return clrRed;
-    if (percent > 50) return clrYellow;
-    return clrTeal;
+    const Theme* t = theme_get();
+    if (percent > 80) return t->red;
+    if (percent > 50) return t->yellow;
+    return t->teal;
 }
 
 // Get color for FIGHT option kind (Pokémon move type coloring)
 static u32 option_kind_color(OptionKind kind) {
+    const Theme* t = theme_get();
     switch (kind) {
-        case OPT_KIND_STEER:    return clrBlue;     // Blue for steering/direction
-        case OPT_KIND_QUESTION: return clrMauve;    // Purple for questions
-        case OPT_KIND_ACTION:   return clrGreen;    // Green for actions
-        case OPT_KIND_META:     return clrPeach;    // Orange for meta/info
-        default:               return clrBlue;
+        case OPT_KIND_STEER:    return t->optSteer;
+        case OPT_KIND_QUESTION: return t->optQuestion;
+        case OPT_KIND_ACTION:   return t->optAction;
+        case OPT_KIND_META:     return t->optMeta;
+        default:               return t->optSteer;
     }
 }
 
 // Draw a single FIGHT wheel option (Pokémon battle menu style)
 static void draw_fight_option(float x, float y, float w, float h,
                               FightOption* opt, bool highlighted) {
+    const Theme* t = theme_get();
+
     // Background - highlighted options get brighter background
-    u32 bgColor = highlighted ? clrSurface1 : clrMantle;
+    u32 bgColor = highlighted ? t->highlight : t->mantle;
     C2D_DrawRectSolid(x, y, 0, w, h, bgColor);
 
     // Left accent bar (colored by kind, like Pokémon move types)
@@ -251,8 +219,7 @@ static void draw_fight_option(float x, float y, float w, float h,
 
     // Selection indicator arrow if highlighted
     if (highlighted) {
-        // Draw a triangle/arrow on the left
-        C2D_DrawRectSolid(x + 8, y + h/2 - 4, 0, 8, 8, clrText);
+        C2D_DrawRectSolid(x + 8, y + h/2 - 4, 0, 8, 8, t->text);
     }
 
     // Option label
@@ -261,15 +228,15 @@ static void draw_fight_option(float x, float y, float w, float h,
     C2D_TextOptimize(&txtLabel);
     float textX = highlighted ? x + 22 : x + 14;
     float textScale = highlighted ? 0.55f : 0.5f;
-    u32 textColor = highlighted ? clrText : clrSubtext1;
+    u32 textColor = highlighted ? t->text : t->subtext1;
     C2D_DrawText(&txtLabel, C2D_WithColor, textX, y + (h - 18*textScale)/2, 0,
                  textScale, textScale, textColor);
 
     // Border
     if (highlighted) {
-        draw_border(x, y, w, h, accentColor);
+        draw_border(x, y, w, h, t->highlightBorder);
     } else {
-        draw_border(x, y, w, h, clrSurface1);
+        draw_border(x, y, w, h, t->surface1);
     }
 }
 
@@ -289,12 +256,14 @@ static void draw_fight_wheel(float startX, float startY, Agent* agent) {
 static void draw_creature_slot(float x, float y, float w, float h,
                                 int slot_idx, Agent* agent, bool is_selected,
                                 AnimState* anim) {
+    const Theme* t = theme_get();
+
     // Background
-    C2D_DrawRectSolid(x, y, 0, w, h, clrMantle);
+    C2D_DrawRectSolid(x, y, 0, w, h, t->mantle);
 
     if (agent && agent->active) {
         // Border — mauve if selected, surface1 if not
-        draw_border(x, y, w, h, is_selected ? clrMauve : clrSurface1);
+        draw_border(x, y, w, h, is_selected ? t->mauve : t->surface1);
 
         // Draw creature centered in slot
         const CreatureFrame* frame = anim_current_frame(anim);
@@ -315,21 +284,21 @@ static void draw_creature_slot(float x, float y, float w, float h,
         float nameW = strlen(nameBuf) * 13.0f * nameScale;
         C2D_DrawText(&txtName, C2D_WithColor,
                      x + (w - nameW) / 2.0f, y + h - 14, 0,
-                     nameScale, nameScale, clrText);
+                     nameScale, nameScale, t->text);
 
         // State indicator dot
         u32 dotColor = state_to_color(agent->state);
         C2D_DrawRectSolid(x + w - 8, y + 3, 0, 5, 5, dotColor);
     } else {
         // Empty slot — dashed border with "+" label
-        draw_dashed_border(x, y, w, h, clrSurface1);
+        draw_dashed_border(x, y, w, h, t->surface1);
 
         C2D_Text txtPlus;
         C2D_TextParse(&txtPlus, textBuf, "+");
         C2D_TextOptimize(&txtPlus);
         C2D_DrawText(&txtPlus, C2D_WithColor,
                      x + w / 2 - 5, y + h / 2 - 10, 0,
-                     0.7f, 0.7f, clrOverlay0);
+                     0.7f, 0.7f, t->overlay0);
     }
 }
 
@@ -337,7 +306,9 @@ static void draw_creature_slot(float x, float y, float w, float h,
 
 void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
                    int selected, bool connected, AnimState* anims) {
-    C2D_TargetClear(target, clrBase);
+    const Theme* t = theme_get();
+
+    C2D_TargetClear(target, t->base);
     C2D_SceneBegin(target);
     C2D_TextBufClear(textBuf);
 
@@ -346,29 +317,35 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         Agent* agent = (agent_count > 0) ? &agents[0] : NULL;
 
         // Title bar (y=0, 24px)
-        C2D_DrawRectSolid(0, 0, 0, TOP_WIDTH, 24, clrCrust);
+        C2D_DrawRectSolid(0, 0, 0, TOP_WIDTH, 24, t->crust);
         C2D_Text txtTitle;
         C2D_TextParse(&txtTitle, textBuf, "rAI3DS");
         C2D_TextOptimize(&txtTitle);
-        C2D_DrawText(&txtTitle, C2D_WithColor, 10, 3, 0, 0.55f, 0.55f, clrLavender);
+        C2D_DrawText(&txtTitle, C2D_WithColor, 10, 3, 0, 0.55f, 0.55f, t->lavender);
+
+        // Theme name indicator
+        C2D_Text txtTheme;
+        C2D_TextParse(&txtTheme, textBuf, theme_get_name());
+        C2D_TextOptimize(&txtTheme);
+        C2D_DrawText(&txtTheme, C2D_WithColor, 280, 5, 0, 0.4f, 0.4f, t->overlay0);
 
         C2D_Text txtVer;
-        C2D_TextParse(&txtVer, textBuf, "v0.2.0");
+        C2D_TextParse(&txtVer, textBuf, "v0.3.0");
         C2D_TextOptimize(&txtVer);
-        C2D_DrawText(&txtVer, C2D_WithColor, 350, 5, 0, 0.4f, 0.4f, clrOverlay0);
+        C2D_DrawText(&txtVer, C2D_WithColor, 350, 5, 0, 0.4f, 0.4f, t->overlay0);
 
-        C2D_DrawRectSolid(0, 24, 0, TOP_WIDTH, 1, clrSurface1);
+        C2D_DrawRectSolid(0, 24, 0, TOP_WIDTH, 1, t->surface1);
 
         if (!agent) return;
 
         // Agent header with creature (y=28, 50px)
-        C2D_DrawRectSolid(0, 28, 0, TOP_WIDTH, 50, clrMantle);
+        C2D_DrawRectSolid(0, 28, 0, TOP_WIDTH, 50, t->mantle);
 
         // Draw creature in header area
         if (anims) {
             const CreatureFrame* frame = anim_current_frame(&anims[0]);
             if (frame) {
-                draw_creature(15, 30, 3, frame);  // scale 3 = 48x48
+                draw_creature(15, 30, 3, frame);
             }
         }
 
@@ -376,7 +353,7 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_Text txtName;
         C2D_TextParse(&txtName, textBuf, agent->name);
         C2D_TextOptimize(&txtName);
-        C2D_DrawText(&txtName, C2D_WithColor, 70, 32, 0, 0.65f, 0.65f, clrText);
+        C2D_DrawText(&txtName, C2D_WithColor, 70, 32, 0, 0.65f, 0.65f, t->text);
 
         // State pill
         draw_state_pill(260, 30, agent->state, 0.45f);
@@ -386,14 +363,14 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
             C2D_Text txtBeat;
             C2D_TextParse(&txtBeat, textBuf, agent->last_beat);
             C2D_TextOptimize(&txtBeat);
-            C2D_DrawText(&txtBeat, C2D_WithColor, 70, 52, 0, 0.4f, 0.4f, clrSubtext0);
+            C2D_DrawText(&txtBeat, C2D_WithColor, 70, 52, 0, 0.4f, 0.4f, t->subtext0);
         }
 
         // Context section (y=85)
         C2D_Text txtCtxLabel;
         C2D_TextParse(&txtCtxLabel, textBuf, "Context Window");
         C2D_TextOptimize(&txtCtxLabel);
-        C2D_DrawText(&txtCtxLabel, C2D_WithColor, 40, 85, 0, 0.45f, 0.45f, clrSubtext0);
+        C2D_DrawText(&txtCtxLabel, C2D_WithColor, 40, 85, 0, 0.45f, 0.45f, t->subtext0);
 
         draw_bar(40, 104, 290, 16, agent->context_percent, context_color(agent->context_percent));
 
@@ -402,7 +379,7 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_Text txtPct;
         C2D_TextParse(&txtPct, textBuf, pctBuf);
         C2D_TextOptimize(&txtPct);
-        C2D_DrawText(&txtPct, C2D_WithColor, 340, 105, 0, 0.45f, 0.45f, clrText);
+        C2D_DrawText(&txtPct, C2D_WithColor, 340, 105, 0, 0.45f, 0.45f, t->text);
 
         char tokenBuf[48];
         int tokens_k = (agent->context_percent * 200) / 100;
@@ -410,13 +387,13 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_Text txtTokens;
         C2D_TextParse(&txtTokens, textBuf, tokenBuf);
         C2D_TextOptimize(&txtTokens);
-        C2D_DrawText(&txtTokens, C2D_WithColor, 40, 125, 0, 0.4f, 0.4f, clrOverlay0);
+        C2D_DrawText(&txtTokens, C2D_WithColor, 40, 125, 0, 0.4f, 0.4f, t->overlay0);
 
-        C2D_DrawRectSolid(10, 145, 0, TOP_WIDTH - 20, 1, clrSurface1);
+        C2D_DrawRectSolid(10, 145, 0, TOP_WIDTH - 20, 1, t->surface1);
 
         // Activity card (y=148, 70px)
-        C2D_DrawRectSolid(10, 148, 0, TOP_WIDTH - 20, 70, clrMantle);
-        draw_border(10, 148, TOP_WIDTH - 20, 70, clrSurface1);
+        C2D_DrawRectSolid(10, 148, 0, TOP_WIDTH - 20, 70, t->mantle);
+        draw_border(10, 148, TOP_WIDTH - 20, 70, t->surface1);
 
         // Reset scroll when tool detail changes
         if (strcmp(agent->prompt_tool_detail, last_tool_detail) != 0) {
@@ -429,12 +406,12 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
             C2D_Text txtToolLabel;
             C2D_TextParse(&txtToolLabel, textBuf, "Current Tool");
             C2D_TextOptimize(&txtToolLabel);
-            C2D_DrawText(&txtToolLabel, C2D_WithColor, 20, 151, 0, 0.4f, 0.4f, clrSubtext0);
+            C2D_DrawText(&txtToolLabel, C2D_WithColor, 20, 151, 0, 0.4f, 0.4f, t->subtext0);
 
             C2D_Text txtToolType;
             C2D_TextParse(&txtToolType, textBuf, agent->prompt_tool_type);
             C2D_TextOptimize(&txtToolType);
-            C2D_DrawText(&txtToolType, C2D_WithColor, 20, 163, 0, 0.55f, 0.55f, clrPeach);
+            C2D_DrawText(&txtToolType, C2D_WithColor, 20, 163, 0, 0.55f, 0.55f, t->peach);
 
             if (agent->prompt_tool_detail[0] != '\0') {
                 char lines[WRAP_MAX_LINES][WRAP_LINE_LEN];
@@ -446,20 +423,20 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
                     C2D_Text txtLine;
                     C2D_TextParse(&txtLine, textBuf, lines[l + detail_scroll]);
                     C2D_TextOptimize(&txtLine);
-                    C2D_DrawText(&txtLine, C2D_WithColor, 20, 179 + l * 13, 0, 0.43f, 0.43f, clrText);
+                    C2D_DrawText(&txtLine, C2D_WithColor, 20, 179 + l * 13, 0, 0.43f, 0.43f, t->text);
                 }
                 if (detail_scroll + visible < nlines) {
                     C2D_Text txtMore;
                     C2D_TextParse(&txtMore, textBuf, "...");
                     C2D_TextOptimize(&txtMore);
-                    C2D_DrawText(&txtMore, C2D_WithColor, 370, 204, 0, 0.4f, 0.4f, clrOverlay0);
+                    C2D_DrawText(&txtMore, C2D_WithColor, 370, 204, 0, 0.4f, 0.4f, t->overlay0);
                 }
             }
         } else {
             C2D_Text txtToolLabel;
             C2D_TextParse(&txtToolLabel, textBuf, "Activity");
             C2D_TextOptimize(&txtToolLabel);
-            C2D_DrawText(&txtToolLabel, C2D_WithColor, 20, 151, 0, 0.4f, 0.4f, clrSubtext0);
+            C2D_DrawText(&txtToolLabel, C2D_WithColor, 20, 151, 0, 0.4f, 0.4f, t->subtext0);
 
             C2D_Text txtState;
             char stateBuf[32];
@@ -470,20 +447,20 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         }
 
         // Footer bar
-        C2D_DrawRectSolid(0, 220, 0, TOP_WIDTH, 20, clrCrust);
+        C2D_DrawRectSolid(0, 220, 0, TOP_WIDTH, 20, t->crust);
 
         if (connected) {
-            C2D_DrawRectSolid(12, 227, 0, 6, 6, clrGreen);
+            C2D_DrawRectSolid(12, 227, 0, 6, 6, t->green);
             C2D_Text txtConn;
             C2D_TextParse(&txtConn, textBuf, "Connected");
             C2D_TextOptimize(&txtConn);
-            C2D_DrawText(&txtConn, C2D_WithColor, 22, 223, 0, 0.4f, 0.4f, clrSubtext0);
+            C2D_DrawText(&txtConn, C2D_WithColor, 22, 223, 0, 0.4f, 0.4f, t->subtext0);
         } else {
-            C2D_DrawRectSolid(12, 227, 0, 6, 6, clrRed);
+            C2D_DrawRectSolid(12, 227, 0, 6, 6, t->red);
             C2D_Text txtConn;
             C2D_TextParse(&txtConn, textBuf, "Disconnected");
             C2D_TextOptimize(&txtConn);
-            C2D_DrawText(&txtConn, C2D_WithColor, 22, 223, 0, 0.4f, 0.4f, clrSubtext0);
+            C2D_DrawText(&txtConn, C2D_WithColor, 22, 223, 0, 0.4f, 0.4f, t->subtext0);
         }
 
     } else {
@@ -496,21 +473,21 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
             float y = start_y + (i * row_height);
 
             if (i == selected) {
-                C2D_DrawRectSolid(0, y, 0, TOP_WIDTH, row_height - 5, clrMantle);
+                C2D_DrawRectSolid(0, y, 0, TOP_WIDTH, row_height - 5, t->mantle);
             }
 
             // Small creature on the left
             if (anims) {
                 const CreatureFrame* frame = anim_current_frame(&anims[i]);
                 if (frame) {
-                    draw_creature(5, y + 3, 2, frame);  // scale 2 = 32x32
+                    draw_creature(5, y + 3, 2, frame);
                 }
             }
 
             C2D_Text txtName;
             C2D_TextParse(&txtName, textBuf, agent->name);
             C2D_TextOptimize(&txtName);
-            C2D_DrawText(&txtName, C2D_WithColor, 42, y + 5, 0, 0.6f, 0.6f, clrText);
+            C2D_DrawText(&txtName, C2D_WithColor, 42, y + 5, 0, 0.6f, 0.6f, t->text);
 
             C2D_Text txtState;
             C2D_TextParse(&txtState, textBuf, state_to_string(agent->state));
@@ -522,7 +499,7 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
             C2D_Text txtCtx;
             C2D_TextParse(&txtCtx, textBuf, ctxLabel);
             C2D_TextOptimize(&txtCtx);
-            C2D_DrawText(&txtCtx, C2D_WithColor, 42, y + 22, 0, 0.4f, 0.4f, clrSubtext0);
+            C2D_DrawText(&txtCtx, C2D_WithColor, 42, y + 22, 0, 0.4f, 0.4f, t->subtext0);
             draw_bar(130, y + 23, 180, 10, agent->context_percent, context_color(agent->context_percent));
 
             if (agent->prompt_tool_type[0] != '\0') {
@@ -535,23 +512,23 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
                 }
                 C2D_TextParse(&txtTool, textBuf, toolBuf);
                 C2D_TextOptimize(&txtTool);
-                C2D_DrawText(&txtTool, C2D_WithColor, 42, y + 38, 0, 0.4f, 0.4f, clrPeach);
+                C2D_DrawText(&txtTool, C2D_WithColor, 42, y + 38, 0, 0.4f, 0.4f, t->peach);
             } else {
                 C2D_Text txtMsg;
                 C2D_TextParse(&txtMsg, textBuf, state_to_string(agent->state));
                 C2D_TextOptimize(&txtMsg);
-                C2D_DrawText(&txtMsg, C2D_WithColor, 42, y + 40, 0, 0.45f, 0.45f, clrSubtext0);
+                C2D_DrawText(&txtMsg, C2D_WithColor, 42, y + 40, 0, 0.45f, 0.45f, t->subtext0);
             }
 
-            C2D_DrawRectSolid(0, y + row_height - 5, 0, TOP_WIDTH, 1, clrSurface1);
+            C2D_DrawRectSolid(0, y + row_height - 5, 0, TOP_WIDTH, 1, t->surface1);
         }
 
         // Title bar at bottom
-        C2D_DrawRectSolid(0, TOP_HEIGHT - 20, 0, TOP_WIDTH, 20, clrCrust);
+        C2D_DrawRectSolid(0, TOP_HEIGHT - 20, 0, TOP_WIDTH, 20, t->crust);
         C2D_Text txtTitle;
-        C2D_TextParse(&txtTitle, textBuf, "rAI3DS v0.2.0");
+        C2D_TextParse(&txtTitle, textBuf, "rAI3DS v0.3.0");
         C2D_TextOptimize(&txtTitle);
-        C2D_DrawText(&txtTitle, C2D_WithColor, 160, TOP_HEIGHT - 17, 0, 0.5f, 0.5f, clrSubtext0);
+        C2D_DrawText(&txtTitle, C2D_WithColor, 160, TOP_HEIGHT - 17, 0, 0.5f, 0.5f, t->subtext0);
     }
 }
 
@@ -559,7 +536,9 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
 
 void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
                       int selected, bool connected, AnimState* anims) {
-    C2D_TargetClear(target, clrBase);
+    const Theme* t = theme_get();
+
+    C2D_TargetClear(target, t->base);
     C2D_SceneBegin(target);
     C2D_TextBufClear(textBuf);
 
@@ -574,14 +553,14 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_TextParse(&txtDisc, textBuf, statusText);
         C2D_TextOptimize(&txtDisc);
         float statusX = reconnecting ? 75 : 90;
-        C2D_DrawText(&txtDisc, C2D_WithColor, statusX, 95, 0, 0.8f, 0.8f, clrYellow);
+        C2D_DrawText(&txtDisc, C2D_WithColor, statusX, 95, 0, 0.8f, 0.8f, t->yellow);
 
         char addrBuf[64];
         snprintf(addrBuf, sizeof(addrBuf), "%s:%d", SERVER_HOST, SERVER_PORT);
         C2D_Text txtAddr;
         C2D_TextParse(&txtAddr, textBuf, addrBuf);
         C2D_TextOptimize(&txtAddr);
-        C2D_DrawText(&txtAddr, C2D_WithColor, 40, 120, 0, 0.5f, 0.5f, clrSubtext0);
+        C2D_DrawText(&txtAddr, C2D_WithColor, 40, 120, 0, 0.5f, 0.5f, t->subtext0);
 
         C2D_Text txtWait;
         const char* waitText = reconnecting 
@@ -590,12 +569,12 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_TextParse(&txtWait, textBuf, waitText);
         C2D_TextOptimize(&txtWait);
         float waitX = reconnecting ? 45 : 55;
-        C2D_DrawText(&txtWait, C2D_WithColor, waitX, 145, 0, 0.45f, 0.45f, clrSubtext0);
+        C2D_DrawText(&txtWait, C2D_WithColor, waitX, 145, 0, 0.45f, 0.45f, t->subtext0);
 
         C2D_Text txtExit;
         C2D_TextParse(&txtExit, textBuf, "START or HOME to exit");
         C2D_TextOptimize(&txtExit);
-        C2D_DrawText(&txtExit, C2D_WithColor, 70, 180, 0, 0.5f, 0.5f, clrSubtext0);
+        C2D_DrawText(&txtExit, C2D_WithColor, 70, 180, 0, 0.5f, 0.5f, t->subtext0);
         return;
     }
 
@@ -614,16 +593,16 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
         }
 
         // Tool detail card (y=58-118)
-        C2D_DrawRectSolid(DETAIL_X, DETAIL_Y, 0, DETAIL_W, DETAIL_H, clrMantle);
-        draw_border(DETAIL_X, DETAIL_Y, DETAIL_W, DETAIL_H, clrSurface1);
+        C2D_DrawRectSolid(DETAIL_X, DETAIL_Y, 0, DETAIL_W, DETAIL_H, t->mantle);
+        draw_border(DETAIL_X, DETAIL_Y, DETAIL_W, DETAIL_H, t->surface1);
 
         if (selected_agent && selected_agent->prompt_tool_type[0] != '\0') {
             C2D_Text txtToolType;
             C2D_TextParse(&txtToolType, textBuf, selected_agent->prompt_tool_type);
             C2D_TextOptimize(&txtToolType);
-            C2D_DrawText(&txtToolType, C2D_WithColor, DETAIL_X + 5, DETAIL_Y + 3, 0, 0.45f, 0.45f, clrPeach);
+            C2D_DrawText(&txtToolType, C2D_WithColor, DETAIL_X + 5, DETAIL_Y + 3, 0, 0.45f, 0.45f, t->peach);
 
-            C2D_DrawRectSolid(DETAIL_X + 5, DETAIL_Y + 18, 0, DETAIL_W - 10, 1, clrSurface1);
+            C2D_DrawRectSolid(DETAIL_X + 5, DETAIL_Y + 18, 0, DETAIL_W - 10, 1, t->surface1);
 
             if (selected_agent->prompt_tool_detail[0] != '\0') {
                 char lines[WRAP_MAX_LINES][WRAP_LINE_LEN];
@@ -636,61 +615,61 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
                     C2D_TextParse(&txtLine, textBuf, lines[l + detail_scroll]);
                     C2D_TextOptimize(&txtLine);
                     C2D_DrawText(&txtLine, C2D_WithColor, DETAIL_X + 5, DETAIL_Y + 22 + l * 12, 0,
-                                 0.40f, 0.40f, clrText);
+                                 0.40f, 0.40f, t->text);
                 }
                 if (detail_scroll + visible < nlines) {
                     C2D_Text txtMore;
                     C2D_TextParse(&txtMore, textBuf, "...");
                     C2D_TextOptimize(&txtMore);
                     C2D_DrawText(&txtMore, C2D_WithColor, DETAIL_X + DETAIL_W - 20, DETAIL_Y + DETAIL_H - 12, 0,
-                                 0.35f, 0.35f, clrOverlay0);
+                                 0.35f, 0.35f, t->overlay0);
                 }
             }
         }
 
         // Action buttons (y=123-188, 65px tall)
         // YES button
-        u32 yesBg = clrGreen;
+        u32 yesBg = t->green;
         C2D_DrawRectSolid(BTN_YES_X, BTN_Y, 0, BTN_W, BTN_H, yesBg);
-        C2D_DrawRectSolid(BTN_YES_X, BTN_Y, 0, BTN_W, 2, clrSurface2);
-        C2D_DrawRectSolid(BTN_YES_X, BTN_Y + BTN_H - 2, 0, BTN_W, 2, clrCrust);
+        C2D_DrawRectSolid(BTN_YES_X, BTN_Y, 0, BTN_W, 2, t->surface2);
+        C2D_DrawRectSolid(BTN_YES_X, BTN_Y + BTN_H - 2, 0, BTN_W, 2, t->crust);
         C2D_Text txtYes;
         C2D_TextParse(&txtYes, textBuf, "YES");
         C2D_TextOptimize(&txtYes);
-        C2D_DrawText(&txtYes, C2D_WithColor, BTN_YES_X + 28, BTN_Y + 14, 0, 0.75f, 0.75f, clrCrust);
+        C2D_DrawText(&txtYes, C2D_WithColor, BTN_YES_X + 28, BTN_Y + 14, 0, 0.75f, 0.75f, t->textAlt);
         // Button hint
         C2D_Text txtYesHint;
         C2D_TextParse(&txtYesHint, textBuf, "[A]");
         C2D_TextOptimize(&txtYesHint);
-        C2D_DrawText(&txtYesHint, C2D_WithColor, BTN_YES_X + 33, BTN_Y + 42, 0, 0.4f, 0.4f, clrCrust);
+        C2D_DrawText(&txtYesHint, C2D_WithColor, BTN_YES_X + 33, BTN_Y + 42, 0, 0.4f, 0.4f, t->textAlt);
 
         // ALWAYS button
-        u32 alwaysBg = clrBlue;
+        u32 alwaysBg = t->blue;
         C2D_DrawRectSolid(BTN_ALWAYS_X, BTN_Y, 0, BTN_W, BTN_H, alwaysBg);
-        C2D_DrawRectSolid(BTN_ALWAYS_X, BTN_Y, 0, BTN_W, 2, clrSurface2);
-        C2D_DrawRectSolid(BTN_ALWAYS_X, BTN_Y + BTN_H - 2, 0, BTN_W, 2, clrCrust);
+        C2D_DrawRectSolid(BTN_ALWAYS_X, BTN_Y, 0, BTN_W, 2, t->surface2);
+        C2D_DrawRectSolid(BTN_ALWAYS_X, BTN_Y + BTN_H - 2, 0, BTN_W, 2, t->crust);
         C2D_Text txtAlways;
         C2D_TextParse(&txtAlways, textBuf, "ALWAYS");
         C2D_TextOptimize(&txtAlways);
-        C2D_DrawText(&txtAlways, C2D_WithColor, BTN_ALWAYS_X + 13, BTN_Y + 14, 0, 0.7f, 0.7f, clrCrust);
+        C2D_DrawText(&txtAlways, C2D_WithColor, BTN_ALWAYS_X + 13, BTN_Y + 14, 0, 0.7f, 0.7f, t->textAlt);
         C2D_Text txtAlwaysHint;
         C2D_TextParse(&txtAlwaysHint, textBuf, "[X]");
         C2D_TextOptimize(&txtAlwaysHint);
-        C2D_DrawText(&txtAlwaysHint, C2D_WithColor, BTN_ALWAYS_X + 33, BTN_Y + 42, 0, 0.4f, 0.4f, clrCrust);
+        C2D_DrawText(&txtAlwaysHint, C2D_WithColor, BTN_ALWAYS_X + 33, BTN_Y + 42, 0, 0.4f, 0.4f, t->textAlt);
 
         // NO button
-        u32 noBg = clrRed;
+        u32 noBg = t->red;
         C2D_DrawRectSolid(BTN_NO_X, BTN_Y, 0, BTN_W, BTN_H, noBg);
-        C2D_DrawRectSolid(BTN_NO_X, BTN_Y, 0, BTN_W, 2, clrSurface2);
-        C2D_DrawRectSolid(BTN_NO_X, BTN_Y + BTN_H - 2, 0, BTN_W, 2, clrCrust);
+        C2D_DrawRectSolid(BTN_NO_X, BTN_Y, 0, BTN_W, 2, t->surface2);
+        C2D_DrawRectSolid(BTN_NO_X, BTN_Y + BTN_H - 2, 0, BTN_W, 2, t->crust);
         C2D_Text txtNo;
         C2D_TextParse(&txtNo, textBuf, "NO");
         C2D_TextOptimize(&txtNo);
-        C2D_DrawText(&txtNo, C2D_WithColor, BTN_NO_X + 33, BTN_Y + 14, 0, 0.75f, 0.75f, clrCrust);
+        C2D_DrawText(&txtNo, C2D_WithColor, BTN_NO_X + 33, BTN_Y + 14, 0, 0.75f, 0.75f, t->textAlt);
         C2D_Text txtNoHint;
         C2D_TextParse(&txtNoHint, textBuf, "[B]");
         C2D_TextOptimize(&txtNoHint);
-        C2D_DrawText(&txtNoHint, C2D_WithColor, BTN_NO_X + 33, BTN_Y + 42, 0, 0.4f, 0.4f, clrCrust);
+        C2D_DrawText(&txtNoHint, C2D_WithColor, BTN_NO_X + 33, BTN_Y + 42, 0, 0.4f, 0.4f, t->textAlt);
 
     } else {
         // ========== FIGHT MODE LAYOUT (when not in permission prompt) ==========
@@ -707,11 +686,11 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
         // FIGHT wheel (y=55-210)
         if (selected_agent && selected_agent->option_count > 0) {
             // Title bar for FIGHT menu
-            C2D_DrawRectSolid(0, 52, 0, BOT_WIDTH, 18, clrCrust);
+            C2D_DrawRectSolid(0, 52, 0, BOT_WIDTH, 18, t->crust);
             C2D_Text txtFight;
             C2D_TextParse(&txtFight, textBuf, "FIGHT");
             C2D_TextOptimize(&txtFight);
-            C2D_DrawText(&txtFight, C2D_WithColor, 12, 53, 0, 0.5f, 0.5f, clrLavender);
+            C2D_DrawText(&txtFight, C2D_WithColor, 12, 53, 0, 0.5f, 0.5f, t->lavender);
 
             // State indicator
             draw_state_pill(BOT_WIDTH - 80, 53, selected_agent->state, 0.4f);
@@ -720,12 +699,12 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
             draw_fight_wheel(FIGHT_OPTION_X, 72, selected_agent);
 
             // Hint bar at bottom (above auto-edit)
-            C2D_DrawRectSolid(0, 188, 0, BOT_WIDTH, 5, clrSurface1);
+            C2D_DrawRectSolid(0, 188, 0, BOT_WIDTH, 5, t->surface1);
 
         } else if (selected_agent) {
             // No options - show simplified view
-            C2D_DrawRectSolid(10, 55, 0, BOT_WIDTH - 20, 130, clrMantle);
-            draw_border(10, 55, BOT_WIDTH - 20, 130, clrSurface1);
+            C2D_DrawRectSolid(10, 55, 0, BOT_WIDTH - 20, 130, t->mantle);
+            draw_border(10, 55, BOT_WIDTH - 20, 130, t->surface1);
 
             // Large creature (scale 5 = 80x80)
             if (anims) {
@@ -742,7 +721,7 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
             C2D_Text txtName;
             C2D_TextParse(&txtName, textBuf, selected_agent->name);
             C2D_TextOptimize(&txtName);
-            C2D_DrawText(&txtName, C2D_WithColor, infoX, 60, 0, 0.6f, 0.6f, clrText);
+            C2D_DrawText(&txtName, C2D_WithColor, infoX, 60, 0, 0.6f, 0.6f, t->text);
 
             // State pill
             draw_state_pill(infoX, 78, selected_agent->state, 0.45f);
@@ -751,7 +730,7 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
             C2D_Text txtCtx;
             C2D_TextParse(&txtCtx, textBuf, "Context");
             C2D_TextOptimize(&txtCtx);
-            C2D_DrawText(&txtCtx, C2D_WithColor, infoX, 98, 0, 0.35f, 0.35f, clrSubtext0);
+            C2D_DrawText(&txtCtx, C2D_WithColor, infoX, 98, 0, 0.35f, 0.35f, t->subtext0);
             draw_bar(infoX, 112, 180, 10, selected_agent->context_percent,
                      context_color(selected_agent->context_percent));
 
@@ -759,32 +738,32 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
             C2D_Text txtMsg;
             C2D_TextParse(&txtMsg, textBuf, "Waiting for options...");
             C2D_TextOptimize(&txtMsg);
-            C2D_DrawText(&txtMsg, C2D_WithColor, infoX, 135, 0, 0.45f, 0.45f, clrSubtext0);
+            C2D_DrawText(&txtMsg, C2D_WithColor, infoX, 135, 0, 0.45f, 0.45f, t->subtext0);
         }
     }
 
     // Auto-edit toggle (always visible at bottom)
-    u32 aeColor = auto_edit_enabled ? clrGreen : clrSurface0;
-    u32 aeTxt = auto_edit_enabled ? clrCrust : clrSubtext0;
+    u32 aeColor = auto_edit_enabled ? t->green : t->surface0;
+    u32 aeTxt = auto_edit_enabled ? t->textAlt : t->subtext0;
     C2D_DrawRectSolid(AUTO_EDIT_X, AUTO_EDIT_Y, 0, AUTO_EDIT_W, AUTO_EDIT_H, aeColor);
-    draw_border(AUTO_EDIT_X, AUTO_EDIT_Y, AUTO_EDIT_W, AUTO_EDIT_H, clrSurface1);
+    draw_border(AUTO_EDIT_X, AUTO_EDIT_Y, AUTO_EDIT_W, AUTO_EDIT_H, t->surface1);
     C2D_Text txtAutoEdit;
     const char* aeLabel = auto_edit_enabled ? "AUTO-ACCEPT EDITS: ON [Y]" : "AUTO-ACCEPT EDITS: OFF [Y]";
     C2D_TextParse(&txtAutoEdit, textBuf, aeLabel);
     C2D_TextOptimize(&txtAutoEdit);
     C2D_DrawText(&txtAutoEdit, C2D_WithColor, AUTO_EDIT_X + 40, AUTO_EDIT_Y + 5, 0, 0.5f, 0.5f, aeTxt);
 
-    // Status bar (y=225-240)
-    C2D_DrawRectSolid(0, 225, 0, BOT_WIDTH, 15, clrCrust);
+    // Status bar (y=225-240) with theme cycle hint
+    C2D_DrawRectSolid(0, 225, 0, BOT_WIDTH, 15, t->crust);
     C2D_Text txtStatus;
     // Different hints based on mode
     if (prompt) {
-        C2D_TextParse(&txtStatus, textBuf, "L/R: Switch   A:Yes B:No X:Always");
+        C2D_TextParse(&txtStatus, textBuf, "L/R:Switch  A:Yes B:No  SELECT:Theme");
     } else {
-        C2D_TextParse(&txtStatus, textBuf, "D-Pad: Select   A:Send   B:RUN(Stop)");
+        C2D_TextParse(&txtStatus, textBuf, "D-Pad:Select  A:Send  SELECT:Theme");
     }
     C2D_TextOptimize(&txtStatus);
-    C2D_DrawText(&txtStatus, C2D_WithColor, 10, 227, 0, 0.35f, 0.35f, clrOverlay0);
+    C2D_DrawText(&txtStatus, C2D_WithColor, 10, 227, 0, 0.35f, 0.35f, t->overlay0);
 }
 
 // ========== TOUCH ZONES ==========
