@@ -48,8 +48,8 @@ The FIGHT wheel is a Mass Effect-style dialogue / Pokémon move-style menu for s
 **Bottom Screen:**
 - Shows 3-6 short generated options based on agent state and context
 - D-pad (or Circle Pad) highlights options
-- **A button**: Send selected option as a prompt to the agent (logged for manual use)
-- **B button**: RUN (sends stop request)
+- **A button**: Select option (soft - updates state, logs prompt)
+- **B button**: RUN (soft stop - updates state, logs stop prompt)
 - Touch: Large hitboxes for each option (tap to select)
 
 **Top Screen:**
@@ -60,7 +60,7 @@ The FIGHT wheel is a Mass Effect-style dialogue / Pokémon move-style menu for s
 - Context-aware: adapts to current tool, file paths, commands
 - State-aware: different options for idle, working, error, done states
 
-**GAP:** Without tmux, pick/run cannot directly inject text into Claude CLI. Prompts are logged for manual use or future integration with Claude's input hooks.
+**Soft-only:** pick/run update UI state and log prompts to console. No direct injection into Claude CLI (no tmux). Prompts are available for manual copy/paste or future input hook integration.
 
 ### Testing in Azahar (3DS Emulator)
 

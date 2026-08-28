@@ -423,7 +423,8 @@ export function startServer() {
         }
       }
 
-      // Pre-tool hook (observability only - does not control permissions)
+      // Pre-tool hook (observability - tool started, set working state)
+      // PermissionRequest still owns waiting state for permission decisions
       if (path === "/hook/pre-tool" && req.method === "POST") {
         try {
           const body = (await req.json()) as PreToolHook;
@@ -432,13 +433,19 @@ export function startServer() {
           const toolDetail = body.tool_input ? extractToolDetail(body.tool_input) : "";
           console.log(`[hook] pre-tool (slot ${slot}): ${toolName}`);
 
-          // Update lastBeat for top screen display
+          // Build lastBeat for top screen display
           const beatDetail = toolDetail.length > 30 ? toolDetail.slice(0, 27) + "..." : toolDetail;
           const lastBeat = `${toolName}${beatDetail ? `: ${beatDetail}` : ""}`;
 
-          // Only update lastBeat, don't change state (permission-request controls that)
-          agentStates[slot].lastBeat = lastBeat;
-          broadcastSlotState(slot);
+          // Update state to working - FIGHT wheel shows working options
+          // (PermissionRequest will override to waiting if it fires)
+          updateState(slot, {
+            state: "working",
+            message: `Tool: ${toolName}`,
+            promptToolType: toolName,
+            promptToolDetail: toolDetail,
+            lastBeat,
+          });
 
           return Response.json({ ok: true });
         } catch (e) {

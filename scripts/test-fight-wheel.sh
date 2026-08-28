@@ -1,12 +1,13 @@
 #!/bin/bash
 # scripts/test-fight-wheel.sh - Test FIGHT wheel protocol
-# Tests: option generation, pick, and run messages
+# Tests: option generation, pick, and run messages (soft-only, no tmux)
 
 set -e
 
 echo "=== FIGHT Wheel Protocol Test ==="
 echo ""
 echo "This tests the FIGHT wheel feature (Mass Effect dialogue / Pokémon move menu)"
+echo "NOTE: pick/run are SOFT - they update state and log prompts (no tmux injection)"
 echo ""
 
 # Check dependencies
@@ -49,9 +50,9 @@ else:
     sys.exit(1)
 "
 
-# Test 2: Trigger pre-tool hook and verify options change
+# Test 2: Trigger pre-tool hook and verify state changes to working
 echo ""
-echo "=== Test 2: Options after pre-tool hook ==="
+echo "=== Test 2: Pre-tool sets working state ==="
 curl -s -X POST http://localhost:3333/hook/pre-tool \
   -H 'Content-Type: application/json' \
   -d '{"tool_name":"Shell","tool_input":{"command":"npm test"}}' > /dev/null
@@ -65,36 +66,118 @@ data = json.load(sys.stdin)
 agent = data.get('agents', [])[0]
 options = agent.get('options', [])
 lastBeat = agent.get('lastBeat', '')
-print(f'State: {agent.get(\"state\")} | lastBeat: {lastBeat}')
+state = agent.get('state')
+print(f'State: {state} | lastBeat: {lastBeat}')
 print(f'Options ({len(options)}):')
 for opt in options:
     print(f'  [{opt.get(\"index\")}] {opt.get(\"label\")} -> \"{opt.get(\"fullPrompt\", \"\")[:50]}...\"')
-if agent.get('state') == 'working':
+if state == 'working':
     print('PASS: Agent is in working state')
 else:
-    print(f'FAIL: Expected working state')
+    print(f'FAIL: Expected working state, got {state}')
     sys.exit(1)
 "
 
-# Test 3: WebSocket pick message
+# Test 3: WebSocket pick updates lastBeat (soft - no tmux)
 echo ""
-echo "=== Test 3: WebSocket pick/run messages (mocked) ==="
-echo ""
-echo "To test WebSocket pick/run messages, use wscat:"
-echo ""
-echo "  wscat -c ws://localhost:3333"
-echo ""
-echo "Then send:"
-echo '  {"type":"pick","slot":0,"index":0}  # Sends option prompt to agent'
-echo '  {"type":"run","slot":0}              # Sends stop prompt to agent'
-echo ""
-echo "The server sends prompts via adapter.sendInput() (same path as picks)."
-echo ""
-echo "NOTE: RUN is a soft stop (sends stop prompt). No hard interrupt available."
+echo "=== Test 3: WebSocket pick (soft) ==="
 
-# Test 4: Error state options
+# Use bun to send WS message and check response
+bun -e "
+const ws = new WebSocket('ws://localhost:3333');
+let received = [];
+
+ws.onopen = () => {
+  // Send pick command
+  ws.send(JSON.stringify({type: 'pick', slot: 0, index: 0}));
+};
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === 'agent_status' && msg.slot === 0) {
+    received.push(msg);
+    // Wait for state update after pick
+    if (received.length >= 2) {
+      ws.close();
+    }
+  }
+};
+
+ws.onclose = () => {
+  const last = received[received.length - 1];
+  if (last && last.lastBeat && last.lastBeat.includes('Steer')) {
+    console.log('State:', last.state, '| lastBeat:', last.lastBeat);
+    console.log('PASS: pick updated lastBeat');
+    process.exit(0);
+  } else {
+    console.log('FAIL: pick did not update lastBeat');
+    console.log('Last message:', JSON.stringify(last));
+    process.exit(1);
+  }
+};
+
+ws.onerror = (e) => {
+  console.log('WS error:', e.message);
+  process.exit(1);
+};
+
+// Timeout
+setTimeout(() => {
+  console.log('FAIL: Timeout waiting for WS response');
+  process.exit(1);
+}, 5000);
+"
+
+# Test 4: WebSocket run updates lastBeat (soft - no tmux)
 echo ""
-echo "=== Test 4: Options in error state ==="
+echo "=== Test 4: WebSocket run (soft stop) ==="
+
+bun -e "
+const ws = new WebSocket('ws://localhost:3333');
+let received = [];
+
+ws.onopen = () => {
+  // Send run command
+  ws.send(JSON.stringify({type: 'run', slot: 0}));
+};
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === 'agent_status' && msg.slot === 0) {
+    received.push(msg);
+    if (received.length >= 2) {
+      ws.close();
+    }
+  }
+};
+
+ws.onclose = () => {
+  const last = received[received.length - 1];
+  if (last && last.lastBeat && last.lastBeat.includes('RUN')) {
+    console.log('State:', last.state, '| lastBeat:', last.lastBeat);
+    console.log('PASS: run updated lastBeat (soft stop)');
+    process.exit(0);
+  } else {
+    console.log('FAIL: run did not update lastBeat');
+    console.log('Last message:', JSON.stringify(last));
+    process.exit(1);
+  }
+};
+
+ws.onerror = (e) => {
+  console.log('WS error:', e.message);
+  process.exit(1);
+};
+
+setTimeout(() => {
+  console.log('FAIL: Timeout waiting for WS response');
+  process.exit(1);
+}, 5000);
+"
+
+# Test 5: Error state options
+echo ""
+echo "=== Test 5: Options in error state ==="
 curl -s -X POST http://localhost:3333/hook/post-tool \
   -H 'Content-Type: application/json' \
   -d '{"tool_name":"Shell","error":"Command failed with exit code 1"}' > /dev/null
@@ -123,23 +206,19 @@ echo "=== Test Summary ==="
 echo ""
 echo "Protocol endpoints tested:"
 echo "  - GET /health returns options[] for each agent"
-echo "  - POST /hook/pre-tool updates state and regenerates options"
+echo "  - POST /hook/pre-tool updates state to working and regenerates options"
 echo "  - POST /hook/post-tool updates state and regenerates options"
-echo "  - Options are generated based on agent state (heuristic approach)"
-echo ""
-echo "WebSocket messages (to test with wscat or 3DS):"
-echo '  3DS -> Server: {"type":"pick","slot":0,"index":0}'
-echo '  3DS -> Server: {"type":"run","slot":0}'
-echo '  Server -> 3DS: agent_status with options[] array'
+echo "  - WS pick updates lastBeat (soft - logs prompt, no injection)"
+echo "  - WS run updates lastBeat (soft stop - logs prompt, no injection)"
 echo ""
 echo "Option generation approach: Heuristic + template-based (no paid API)"
 echo "  - State templates: idle, working, waiting, error, done"
 echo "  - Tool augments: Shell, Write, Read, Grep, StrReplace"
 echo "  - Contextual analysis of tool detail (file paths, npm, git, test)"
 echo ""
-echo "RUN implementation:"
-echo "  - Sends stop prompt via sendInput (same path as picks)"
-echo "  - GAP: Soft stop only - no hard interrupt without tmux"
-echo "  - If agent is blocked in a tool, stop may not be immediate"
+echo "FIGHT wheel behavior (soft-only, no tmux):"
+echo "  - pick: Updates state + lastBeat, logs prompt for manual use"
+echo "  - run: Updates state to idle + lastBeat, logs stop prompt"
+echo "  - No direct input injection - prompts logged to console"
 echo ""
-echo "=== Done ==="
+echo "=== All tests passed ==="
