@@ -323,16 +323,18 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         C2D_TextOptimize(&txtTitle);
         C2D_DrawText(&txtTitle, C2D_WithColor, 10, 3, 0, 0.55f, 0.55f, t->lavender);
 
-        // Theme name indicator
+        // Theme name pill (prominent display)
         C2D_Text txtTheme;
-        C2D_TextParse(&txtTheme, textBuf, theme_get_name());
+        char themeBuf[32];
+        snprintf(themeBuf, sizeof(themeBuf), "[%s]", theme_get_name());
+        C2D_TextParse(&txtTheme, textBuf, themeBuf);
         C2D_TextOptimize(&txtTheme);
-        C2D_DrawText(&txtTheme, C2D_WithColor, 280, 5, 0, 0.4f, 0.4f, t->overlay0);
+        C2D_DrawText(&txtTheme, C2D_WithColor, 280, 3, 0, 0.5f, 0.5f, t->lavender);
 
         C2D_Text txtVer;
         C2D_TextParse(&txtVer, textBuf, "v0.3.0");
         C2D_TextOptimize(&txtVer);
-        C2D_DrawText(&txtVer, C2D_WithColor, 350, 5, 0, 0.4f, 0.4f, t->overlay0);
+        C2D_DrawText(&txtVer, C2D_WithColor, 360, 5, 0, 0.4f, 0.4f, t->overlay0);
 
         C2D_DrawRectSolid(0, 24, 0, TOP_WIDTH, 1, t->surface1);
 
@@ -526,9 +528,17 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         // Title bar at bottom
         C2D_DrawRectSolid(0, TOP_HEIGHT - 20, 0, TOP_WIDTH, 20, t->crust);
         C2D_Text txtTitle;
-        C2D_TextParse(&txtTitle, textBuf, "rAI3DS v0.3.0");
+        C2D_TextParse(&txtTitle, textBuf, "rAI3DS");
         C2D_TextOptimize(&txtTitle);
-        C2D_DrawText(&txtTitle, C2D_WithColor, 160, TOP_HEIGHT - 17, 0, 0.5f, 0.5f, t->subtext0);
+        C2D_DrawText(&txtTitle, C2D_WithColor, 140, TOP_HEIGHT - 17, 0, 0.5f, 0.5f, t->subtext0);
+
+        // Theme name in multi-agent view
+        C2D_Text txtThemeMulti;
+        char themeMultiBuf[32];
+        snprintf(themeMultiBuf, sizeof(themeMultiBuf), "[%s]", theme_get_name());
+        C2D_TextParse(&txtThemeMulti, textBuf, themeMultiBuf);
+        C2D_TextOptimize(&txtThemeMulti);
+        C2D_DrawText(&txtThemeMulti, C2D_WithColor, 220, TOP_HEIGHT - 17, 0, 0.5f, 0.5f, t->lavender);
     }
 }
 
@@ -753,14 +763,21 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
     C2D_TextOptimize(&txtAutoEdit);
     C2D_DrawText(&txtAutoEdit, C2D_WithColor, AUTO_EDIT_X + 40, AUTO_EDIT_Y + 5, 0, 0.5f, 0.5f, aeTxt);
 
-    // Status bar (y=225-240) with theme cycle hint
+    // Status bar (y=225-240) with theme name
     C2D_DrawRectSolid(0, 225, 0, BOT_WIDTH, 15, t->crust);
+
+    // Theme name on the right side of status bar
+    C2D_Text txtThemeBot;
+    C2D_TextParse(&txtThemeBot, textBuf, theme_get_name());
+    C2D_TextOptimize(&txtThemeBot);
+    C2D_DrawText(&txtThemeBot, C2D_WithColor, BOT_WIDTH - 70, 227, 0, 0.4f, 0.4f, t->lavender);
+
+    // Control hints on the left
     C2D_Text txtStatus;
-    // Different hints based on mode
     if (prompt) {
-        C2D_TextParse(&txtStatus, textBuf, "L/R:Switch  A:Yes B:No  SELECT:Theme");
+        C2D_TextParse(&txtStatus, textBuf, "L/R:Switch  A:Yes B:No");
     } else {
-        C2D_TextParse(&txtStatus, textBuf, "D-Pad:Select  A:Send  SELECT:Theme");
+        C2D_TextParse(&txtStatus, textBuf, "D-Pad:Select  A:Send");
     }
     C2D_TextOptimize(&txtStatus);
     C2D_DrawText(&txtStatus, C2D_WithColor, 10, 227, 0, 0.35f, 0.35f, t->overlay0);
