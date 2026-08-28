@@ -768,9 +768,11 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
 
     // Theme name on the right side of status bar
     C2D_Text txtThemeBot;
-    C2D_TextParse(&txtThemeBot, textBuf, theme_get_name());
+    char themeBotBuf[32];
+    snprintf(themeBotBuf, sizeof(themeBotBuf), "[%s]", theme_get_name());
+    C2D_TextParse(&txtThemeBot, textBuf, themeBotBuf);
     C2D_TextOptimize(&txtThemeBot);
-    C2D_DrawText(&txtThemeBot, C2D_WithColor, BOT_WIDTH - 70, 227, 0, 0.4f, 0.4f, t->lavender);
+    C2D_DrawText(&txtThemeBot, C2D_WithColor, BOT_WIDTH - 80, 227, 0, 0.4f, 0.4f, t->lavender);
 
     // Control hints on the left
     C2D_Text txtStatus;
