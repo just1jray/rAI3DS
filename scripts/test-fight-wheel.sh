@@ -78,17 +78,19 @@ else:
 
 # Test 3: WebSocket pick message
 echo ""
-echo "=== Test 3: WebSocket pick message (mocked) ==="
+echo "=== Test 3: WebSocket pick/run messages (mocked) ==="
 echo ""
 echo "To test WebSocket pick/run messages, use wscat:"
 echo ""
 echo "  wscat -c ws://localhost:3333"
 echo ""
 echo "Then send:"
-echo '  {"type":"pick","slot":0,"index":0}'
-echo '  {"type":"run","slot":0}'
+echo '  {"type":"pick","slot":0,"index":0}  # Sends option prompt to agent'
+echo '  {"type":"run","slot":0}              # Sends stop prompt to agent'
 echo ""
-echo "The server will log received messages and forward to tmux (if session exists)."
+echo "The server sends prompts via adapter.sendInput() (same path as picks)."
+echo ""
+echo "NOTE: RUN is a soft stop (sends stop prompt). No hard interrupt available."
 
 # Test 4: Error state options
 echo ""
@@ -134,5 +136,10 @@ echo "Option generation approach: Heuristic + template-based (no paid API)"
 echo "  - State templates: idle, working, waiting, error, done"
 echo "  - Tool augments: Shell, Write, Read, Grep, StrReplace"
 echo "  - Contextual analysis of tool detail (file paths, npm, git, test)"
+echo ""
+echo "RUN implementation:"
+echo "  - Sends stop prompt via sendInput (same path as picks)"
+echo "  - GAP: Soft stop only - no hard interrupt without tmux"
+echo "  - If agent is blocked in a tool, stop may not be immediate"
 echo ""
 echo "=== Done ==="
