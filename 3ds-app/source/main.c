@@ -23,6 +23,7 @@ static bool network_ready = false;       // network_init() succeeded
 static bool first_connection_done = false;  // defer first connect until after first frame (avoids blocking on real 3DS)
 static bool auto_edit = false;           // auto-accept Edit/Write tools
 static int scroll_cooldown = 0;          // frame counter for circle pad debounce
+static int agent_switch_cooldown = 0;    // frame counter for L/R and D-pad agent switching
 
 // Animation state per creature slot
 static AnimState creature_anims[MAX_AGENTS];
@@ -108,9 +109,13 @@ int main(int argc, char* argv[]) {
     while (aptMainLoop()) {
         hidScanInput();
         u32 kDown = hidKeysDown();
+        u32 kHeld = hidKeysHeld();
 
         if (kDown & KEY_START)
             break;
+
+        // Decrement cooldowns
+        if (agent_switch_cooldown > 0) agent_switch_cooldown--;
 
         // Network polling
         network_poll(agents, &agent_count);
@@ -326,24 +331,33 @@ int main(int argc, char* argv[]) {
                 }
             }
             // D-pad left/right switches ACTIVE agents in FIGHT mode
-            if (kDown & KEY_LEFT && agent_count > 0) {
-                selectedAgent = find_prev_active(selectedAgent, agent_count);
-                ui_fight_set_highlight(0);
-            }
-            if (kDown & KEY_RIGHT && agent_count > 0) {
-                selectedAgent = find_next_active(selectedAgent, agent_count);
-                ui_fight_set_highlight(0);
+            // Check both kDown (instant) and kHeld (with cooldown) for reliability
+            if (agent_count > 0 && agent_switch_cooldown == 0) {
+                if ((kDown | kHeld) & KEY_LEFT) {
+                    selectedAgent = find_prev_active(selectedAgent, agent_count);
+                    ui_fight_set_highlight(0);
+                    agent_switch_cooldown = (kDown & KEY_LEFT) ? 12 : 10;
+                }
+                if ((kDown | kHeld) & KEY_RIGHT) {
+                    selectedAgent = find_next_active(selectedAgent, agent_count);
+                    ui_fight_set_highlight(0);
+                    agent_switch_cooldown = (kDown & KEY_RIGHT) ? 12 : 10;
+                }
             }
         } else if (in_fight) {
             // FIGHT mode with no options - D-pad switches ACTIVE agents
-            if (kDown & KEY_LEFT && agent_count > 0) {
-                selectedAgent = find_prev_active(selectedAgent, agent_count);
-            }
-            if (kDown & KEY_RIGHT && agent_count > 0) {
-                selectedAgent = find_next_active(selectedAgent, agent_count);
+            if (agent_count > 0 && agent_switch_cooldown == 0) {
+                if ((kDown | kHeld) & KEY_LEFT) {
+                    selectedAgent = find_prev_active(selectedAgent, agent_count);
+                    agent_switch_cooldown = (kDown & KEY_LEFT) ? 12 : 10;
+                }
+                if ((kDown | kHeld) & KEY_RIGHT) {
+                    selectedAgent = find_next_active(selectedAgent, agent_count);
+                    agent_switch_cooldown = (kDown & KEY_RIGHT) ? 12 : 10;
+                }
             }
         } else {
-            // In prompt mode or no options: D-pad scrolls detail
+            // In prompt mode: D-pad scrolls detail
             if (kDown & KEY_LEFT) {
                 ui_scroll_detail(-1);
             }
@@ -360,13 +374,18 @@ int main(int argc, char* argv[]) {
         }
 
         // L/R bumpers cycle through ACTIVE agents only
-        if (kDown & KEY_R && agent_count > 0) {
-            selectedAgent = find_next_active(selectedAgent, agent_count);
-            ui_fight_set_highlight(0);  // Reset highlight when switching
-        }
-        if (kDown & KEY_L && agent_count > 0) {
-            selectedAgent = find_prev_active(selectedAgent, agent_count);
-            ui_fight_set_highlight(0);  // Reset highlight when switching
+        // Check both kDown (instant) and kHeld (with cooldown) for Azahar reliability
+        if (agent_count > 0 && agent_switch_cooldown == 0) {
+            if ((kDown | kHeld) & KEY_R) {
+                selectedAgent = find_next_active(selectedAgent, agent_count);
+                ui_fight_set_highlight(0);
+                agent_switch_cooldown = (kDown & KEY_R) ? 12 : 10;
+            }
+            if ((kDown | kHeld) & KEY_L) {
+                selectedAgent = find_prev_active(selectedAgent, agent_count);
+                ui_fight_set_highlight(0);
+                agent_switch_cooldown = (kDown & KEY_L) ? 12 : 10;
+            }
         }
 
         // Render (always draw first so real 3DS shows UI before any blocking connect)

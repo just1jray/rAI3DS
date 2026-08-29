@@ -495,10 +495,42 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         }
 
     } else {
-        // === Multi-agent compact rows with creatures ===
-        // Only show active agents (skip inactive placeholder slots)
-        float row_height = 55.0f;
-        float start_y = 10.0f;
+        // === Multi-agent layout with selected header ===
+        
+        // Header band showing selected agent (y=0-55)
+        Agent* sel_agent = (selected < agent_count) ? &agents[selected] : NULL;
+        C2D_DrawRectSolid(0, 0, 0, TOP_WIDTH, 55, clrCrust);
+        
+        if (sel_agent && sel_agent->active) {
+            // Selected creature sprite (scale 3 = 48x48)
+            if (anims && anims[selected].has_sprite) {
+                const CreatureFrame* frame = anim_current_frame(&anims[selected]);
+                if (frame) {
+                    draw_creature(8, 4, 3, frame);
+                }
+            }
+            
+            // Selected agent name (large)
+            C2D_Text txtSelName;
+            C2D_TextParse(&txtSelName, textBuf, sel_agent->name);
+            C2D_TextOptimize(&txtSelName);
+            C2D_DrawText(&txtSelName, C2D_WithColor, 62, 8, 0, 0.7f, 0.7f, clrLavender);
+            
+            // State pill
+            draw_state_pill(62, 30, sel_agent->state, 0.45f);
+            
+            // L/R hint
+            C2D_Text txtHint;
+            C2D_TextParse(&txtHint, textBuf, "L/R: Switch");
+            C2D_TextOptimize(&txtHint);
+            C2D_DrawText(&txtHint, C2D_WithColor, 320, 38, 0, 0.4f, 0.4f, clrOverlay0);
+        }
+        
+        C2D_DrawRectSolid(0, 55, 0, TOP_WIDTH, 1, clrSurface1);
+        
+        // Compact agent rows below header (y=58+)
+        float row_height = 42.0f;
+        float start_y = 58.0f;
         int row = 0;
 
         for (int i = 0; i < agent_count && i < MAX_AGENTS; i++) {
@@ -506,60 +538,41 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
             if (!agent->active) continue;  // Skip inactive slots
             
             float y = start_y + (row * row_height);
+            if (y + row_height > TOP_HEIGHT - 20) break;  // Don't overflow into footer
 
+            // Highlight selected row
             if (i == selected) {
-                C2D_DrawRectSolid(0, y, 0, TOP_WIDTH, row_height - 5, clrMantle);
+                C2D_DrawRectSolid(0, y, 0, TOP_WIDTH, row_height - 2, clrMantle);
+                draw_border(0, y, TOP_WIDTH, row_height - 2, clrMauve);
             }
 
-            // Small creature on the left (use slot's generated sprite)
+            // Small creature on the left (scale 2 = 32x32)
             if (anims && anims[i].has_sprite) {
                 const CreatureFrame* frame = anim_current_frame(&anims[i]);
                 if (frame) {
-                    draw_creature(5, y + 3, 2, frame);  // scale 2 = 32x32
+                    draw_creature(5, y + 5, 2, frame);
                 }
             }
 
             C2D_Text txtName;
             C2D_TextParse(&txtName, textBuf, agent->name);
             C2D_TextOptimize(&txtName);
-            C2D_DrawText(&txtName, C2D_WithColor, 42, y + 5, 0, 0.6f, 0.6f, clrText);
+            u32 nameClr = (i == selected) ? clrLavender : clrText;
+            C2D_DrawText(&txtName, C2D_WithColor, 42, y + 4, 0, 0.55f, 0.55f, nameClr);
 
             C2D_Text txtState;
             C2D_TextParse(&txtState, textBuf, state_to_string(agent->state));
             C2D_TextOptimize(&txtState);
-            C2D_DrawText(&txtState, C2D_WithColor, 320, y + 5, 0, 0.5f, 0.5f, state_to_color(agent->state));
+            C2D_DrawText(&txtState, C2D_WithColor, 320, y + 4, 0, 0.45f, 0.45f, state_to_color(agent->state));
 
-            char ctxLabel[32];
-            snprintf(ctxLabel, sizeof(ctxLabel), "Context: %d%%", agent->context_percent);
-            C2D_Text txtCtx;
-            C2D_TextParse(&txtCtx, textBuf, ctxLabel);
-            C2D_TextOptimize(&txtCtx);
-            C2D_DrawText(&txtCtx, C2D_WithColor, 42, y + 22, 0, 0.4f, 0.4f, clrSubtext0);
-            draw_bar(130, y + 23, 180, 10, agent->context_percent, context_color(agent->context_percent));
+            // Context bar (smaller)
+            draw_bar(42, y + 22, 180, 8, agent->context_percent, context_color(agent->context_percent));
 
-            if (agent->prompt_tool_type[0] != '\0') {
-                C2D_Text txtTool;
-                char toolBuf[80];
-                if (agent->prompt_tool_detail[0] != '\0') {
-                    snprintf(toolBuf, sizeof(toolBuf), "%.30s: %.40s", agent->prompt_tool_type, agent->prompt_tool_detail);
-                } else {
-                    snprintf(toolBuf, sizeof(toolBuf), "%.70s", agent->prompt_tool_type);
-                }
-                C2D_TextParse(&txtTool, textBuf, toolBuf);
-                C2D_TextOptimize(&txtTool);
-                C2D_DrawText(&txtTool, C2D_WithColor, 42, y + 38, 0, 0.4f, 0.4f, clrPeach);
-            } else {
-                C2D_Text txtMsg;
-                C2D_TextParse(&txtMsg, textBuf, state_to_string(agent->state));
-                C2D_TextOptimize(&txtMsg);
-                C2D_DrawText(&txtMsg, C2D_WithColor, 42, y + 40, 0, 0.45f, 0.45f, clrSubtext0);
-            }
-
-            C2D_DrawRectSolid(0, y + row_height - 5, 0, TOP_WIDTH, 1, clrSurface1);
+            C2D_DrawRectSolid(0, y + row_height - 2, 0, TOP_WIDTH, 1, clrSurface1);
             row++;
         }
 
-        // Title bar at bottom
+        // Footer bar
         C2D_DrawRectSolid(0, TOP_HEIGHT - 20, 0, TOP_WIDTH, 20, clrCrust);
         C2D_Text txtTitle;
         C2D_TextParse(&txtTitle, textBuf, "rAI3DS v0.2.0");
