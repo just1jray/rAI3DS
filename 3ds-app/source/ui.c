@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "config.h"
 #include "creature.h"
+#include "animation.h"
 #include "network.h"
 #include <stdio.h>
 #include <string.h>
@@ -495,19 +496,23 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
 
     } else {
         // === Multi-agent compact rows with creatures ===
+        // Only show active agents (skip inactive placeholder slots)
         float row_height = 55.0f;
         float start_y = 10.0f;
+        int row = 0;
 
         for (int i = 0; i < agent_count && i < MAX_AGENTS; i++) {
             Agent* agent = &agents[i];
-            float y = start_y + (i * row_height);
+            if (!agent->active) continue;  // Skip inactive slots
+            
+            float y = start_y + (row * row_height);
 
             if (i == selected) {
                 C2D_DrawRectSolid(0, y, 0, TOP_WIDTH, row_height - 5, clrMantle);
             }
 
-            // Small creature on the left
-            if (anims) {
+            // Small creature on the left (use slot's generated sprite)
+            if (anims && anims[i].has_sprite) {
                 const CreatureFrame* frame = anim_current_frame(&anims[i]);
                 if (frame) {
                     draw_creature(5, y + 3, 2, frame);  // scale 2 = 32x32
@@ -551,6 +556,7 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
             }
 
             C2D_DrawRectSolid(0, y + row_height - 5, 0, TOP_WIDTH, 1, clrSurface1);
+            row++;
         }
 
         // Title bar at bottom
