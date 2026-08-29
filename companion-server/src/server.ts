@@ -11,29 +11,37 @@ import type {
   StopHook,
   PendingPermission,
   FightOption,
+  AgentSource,
+  CursorSlotInfo,
 } from "./types";
 import { generateOptions } from "./options";
+import { createCursorAdapter, CursorAdapter } from "./cursor-adapter";
 import type { ServerWebSocket } from "bun";
 
 const PORT = 3333;
 const HOST = "0.0.0.0";
 const MAX_SLOTS = 4;
 const PERMISSION_TIMEOUT_MS = 90_000; // 90 seconds before auto-deny
+const CURSOR_POLL_INTERVAL_MS = 10_000; // Poll Cursor agents every 10 seconds
+
+// Cursor adapter (initialized on server start)
+let cursorAdapter: CursorAdapter;
 
 // In-memory state — one per slot
 const agentStates: AgentStatus[] = [];
 for (let i = 0; i < MAX_SLOTS; i++) {
   const initialState: AgentStatus = {
-    name: i === 0 ? "claude" : `agent-${i}`,
+    name: i === 0 ? "cursor" : `agent-${i}`,
     state: "idle",
     progress: -1,
-    message: "Waiting for Claude session...",
+    message: "Waiting for agent...",
     lastUpdate: Date.now(),
     contextPercent: 0,
     slot: i,
     active: false,
     options: [],
     lastBeat: "",
+    source: "cursor", // Default to cursor as first-class slot
   };
   // Generate initial options
   initialState.options = generateOptions(initialState);
@@ -97,6 +105,9 @@ function broadcastSlotState(slot: number) {
     active: state.active,
     options: state.options,
     lastBeat: state.lastBeat,
+    source: state.source,
+    cursorAgentId: state.cursorInfo?.agentId,
+    cursorAgentUrl: state.cursorInfo?.agentUrl,
   };
   broadcast(JSON.stringify(message));
 }
@@ -231,30 +242,41 @@ async function handleWsMessage(msg: DSMessage) {
     const option = state.options?.[msg.index];
     if (option) {
       console.log(`[ws] FIGHT pick slot ${targetSlot}: "${option.label}" -> "${option.fullPrompt}"`);
-      // GAP: Without tmux, we cannot directly send input to Claude CLI.
-      // The pick is logged and state updated. User would need to copy/paste or
-      // use a different input mechanism when Claude is waiting for user input.
-      updateState(targetSlot, {
-        state: "working",
-        message: `Steer: ${option.label}`,
-        lastBeat: `Steer: ${option.label}`,
-      });
-      // Log the full prompt for manual use
-      console.log(`[ws] FIGHT prompt to send: "${option.fullPrompt}"`);
+
+      // Handle based on agent source
+      if (state.source === "cursor" && state.cursorInfo?.agentId) {
+        // Cursor agent: send steer via API
+        handleCursorSteer(targetSlot, state.cursorInfo.agentId, option.fullPrompt, option.label);
+      } else {
+        // Claude/other: log for manual use (no direct injection without tmux)
+        updateState(targetSlot, {
+          state: "working",
+          message: `Steer: ${option.label}`,
+          lastBeat: `Steer: ${option.label}`,
+        });
+        console.log(`[ws] FIGHT prompt to send: "${option.fullPrompt}"`);
+      }
     } else {
       console.log(`[ws] FIGHT pick: invalid index ${msg.index} for slot ${targetSlot}`);
     }
   } else if (msg.type === "run") {
     // RUN command: stop/interrupt the agent (B button)
-    // GAP: No hard interrupt available without tmux. We update state and log.
-    // The user would need to manually interrupt Claude if needed.
+    const state = agentStates[targetSlot];
     console.log(`[ws] RUN (stop) requested for slot ${targetSlot}`);
-    console.log(`[ws] STOP prompt: "STOP. Please stop what you're doing immediately."`);
-    updateState(targetSlot, {
-      state: "idle",
-      message: "Stop requested",
-      lastBeat: "RUN (stop sent)",
-    });
+
+    // Handle based on agent source
+    if (state.source === "cursor" && state.cursorInfo?.agentId) {
+      // Cursor agent: cancel via API
+      handleCursorStop(targetSlot, state.cursorInfo.agentId);
+    } else {
+      // Claude/other: log for manual use
+      console.log(`[ws] STOP prompt: "STOP. Please stop what you're doing immediately."`);
+      updateState(targetSlot, {
+        state: "idle",
+        message: "Stop requested",
+        lastBeat: "RUN (stop sent)",
+      });
+    }
   } else if (msg.type === "config") {
     if (msg.autoEdit !== undefined) {
       autoEditEnabled = msg.autoEdit;
@@ -265,7 +287,230 @@ async function handleWsMessage(msg: DSMessage) {
   // Note: spawn_request and command types not supported without tmux
 }
 
+/**
+ * Handle steering a Cursor agent via the API
+ */
+async function handleCursorSteer(slot: number, agentId: string, prompt: string, label: string) {
+  if (!cursorAdapter.isConfigured()) {
+    console.log(`[cursor] Cannot steer - adapter not configured`);
+    updateState(slot, {
+      state: "error",
+      message: "Cursor API not configured",
+      lastBeat: "API error",
+    });
+    return;
+  }
+
+  try {
+    console.log(`[cursor] Steering agent ${agentId}: "${prompt}"`);
+    updateState(slot, {
+      state: "working",
+      message: `Steering: ${label}`,
+      lastBeat: `Steer: ${label}`,
+    });
+
+    const response = await cursorAdapter.steer(agentId, prompt);
+    console.log(`[cursor] Created run ${response.run.id} for agent ${agentId}`);
+
+    // Update the run ID in cursor info
+    const state = agentStates[slot];
+    if (state.cursorInfo) {
+      state.cursorInfo.latestRunId = response.run.id;
+      state.cursorInfo.latestRunStatus = response.run.status;
+    }
+
+    updateState(slot, {
+      state: "working",
+      message: `Sent: ${label}`,
+      lastBeat: `Steer sent: ${label}`,
+    });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[cursor] Steer failed: ${errorMsg}`);
+
+    // Check for busy error (409)
+    if (errorMsg.includes("busy")) {
+      updateState(slot, {
+        state: "working",
+        message: "Agent busy - queued",
+        lastBeat: `Queued: ${label}`,
+      });
+    } else {
+      updateState(slot, {
+        state: "error",
+        message: `Steer failed: ${errorMsg.slice(0, 50)}`,
+        lastBeat: "Steer error",
+      });
+    }
+  }
+}
+
+/**
+ * Handle stopping a Cursor agent via the API
+ */
+async function handleCursorStop(slot: number, agentId: string) {
+  if (!cursorAdapter.isConfigured()) {
+    console.log(`[cursor] Cannot stop - adapter not configured`);
+    updateState(slot, {
+      state: "error",
+      message: "Cursor API not configured",
+      lastBeat: "API error",
+    });
+    return;
+  }
+
+  try {
+    console.log(`[cursor] Stopping agent ${agentId}`);
+    updateState(slot, {
+      state: "working",
+      message: "Stopping...",
+      lastBeat: "RUN (stopping)",
+    });
+
+    const cancelled = await cursorAdapter.stop(agentId);
+
+    if (cancelled) {
+      updateState(slot, {
+        state: "idle",
+        message: "Stopped",
+        lastBeat: "RUN (stopped)",
+      });
+    } else {
+      updateState(slot, {
+        state: "idle",
+        message: "Already stopped",
+        lastBeat: "RUN (was idle)",
+      });
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[cursor] Stop failed: ${errorMsg}`);
+    updateState(slot, {
+      state: "error",
+      message: `Stop failed: ${errorMsg.slice(0, 50)}`,
+      lastBeat: "Stop error",
+    });
+  }
+}
+
+/**
+ * Discover and populate Cursor agents into slots
+ * Called on startup and periodically
+ */
+async function discoverCursorAgents() {
+  if (!cursorAdapter.isConfigured()) {
+    console.log(`[cursor] Skipping discovery - adapter not configured`);
+    return;
+  }
+
+  try {
+    console.log(`[cursor] Discovering agents...`);
+    const response = await cursorAdapter.listAgents({ limit: MAX_SLOTS, includeArchived: false });
+
+    let slotIndex = 0;
+    for (const agent of response.items) {
+      if (slotIndex >= MAX_SLOTS) break;
+      if (agent.status === "ARCHIVED") continue;
+
+      // Get latest run status
+      const run = await cursorAdapter.getLatestRun(agent.id);
+      const { state, message } = cursorAdapter.mapToAgentState(agent, run);
+
+      // Derive a short name from the agent name
+      const shortName = agent.name.length > 20 ? agent.name.slice(0, 17) + "..." : agent.name;
+
+      const cursorInfo: CursorSlotInfo = {
+        agentId: agent.id,
+        agentName: agent.name,
+        agentUrl: agent.url,
+        latestRunId: run?.id,
+        latestRunStatus: run?.status,
+      };
+
+      updateState(slotIndex, {
+        name: slotIndex === 0 ? "cursor" : shortName,
+        state,
+        message,
+        active: agent.status === "ACTIVE",
+        source: "cursor",
+        cursorInfo,
+        lastBeat: run?.status === "RUNNING" ? "Working..." : (run?.status || ""),
+      });
+
+      slotIndex++;
+    }
+
+    // Mark remaining slots as inactive
+    for (let i = slotIndex; i < MAX_SLOTS; i++) {
+      if (agentStates[i].source === "cursor" && agentStates[i].active) {
+        updateState(i, {
+          active: false,
+          state: "idle",
+          message: "No agent",
+          cursorInfo: undefined,
+        });
+      }
+    }
+
+    console.log(`[cursor] Found ${slotIndex} active agents`);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[cursor] Discovery failed: ${errorMsg}`);
+  }
+}
+
+/**
+ * Poll Cursor agent status periodically
+ */
+async function pollCursorStatus() {
+  if (!cursorAdapter.isConfigured()) return;
+
+  for (let i = 0; i < MAX_SLOTS; i++) {
+    const state = agentStates[i];
+    if (state.source !== "cursor" || !state.cursorInfo?.agentId) continue;
+
+    try {
+      const agent = await cursorAdapter.getAgent(state.cursorInfo.agentId);
+      const run = await cursorAdapter.getLatestRun(state.cursorInfo.agentId);
+      const { state: newState, message } = cursorAdapter.mapToAgentState(agent, run);
+
+      // Only update if something changed
+      if (state.state !== newState || state.cursorInfo.latestRunStatus !== run?.status) {
+        state.cursorInfo.latestRunId = run?.id;
+        state.cursorInfo.latestRunStatus = run?.status;
+
+        updateState(i, {
+          state: newState,
+          message,
+          active: agent.status === "ACTIVE",
+          lastBeat: run?.status === "RUNNING" ? "Working..." : (run?.status || state.lastBeat),
+        });
+      }
+    } catch (error) {
+      // Agent might have been deleted - mark as inactive
+      console.error(`[cursor] Poll error for slot ${i}:`, error);
+    }
+  }
+}
+
 export function startServer() {
+  // Initialize Cursor adapter
+  cursorAdapter = createCursorAdapter();
+
+  // Discover Cursor agents on startup
+  discoverCursorAgents().catch((err) => {
+    console.error("[cursor] Initial discovery failed:", err);
+  });
+
+  // Start polling for Cursor status updates
+  if (cursorAdapter.isConfigured()) {
+    setInterval(() => {
+      pollCursorStatus().catch((err) => {
+        console.error("[cursor] Poll failed:", err);
+      });
+    }, CURSOR_POLL_INTERVAL_MS);
+  }
+
   const server = Bun.serve({
     hostname: HOST,
     port: PORT,
@@ -290,12 +535,31 @@ export function startServer() {
           autoEdit: autoEditEnabled,
           wsClients: wsClients.size,
           pendingPermissions: pendingPermissions.size,
+          cursorConfigured: cursorAdapter.isConfigured(),
           sessions: Array.from(sessionSlots.entries()).map(([id, slot]) => ({
             sessionId: id,
             slot,
             active: agentStates[slot].active,
           })),
         });
+      }
+
+      // Refresh Cursor agents
+      if (path === "/cursor/refresh" && req.method === "POST") {
+        if (!cursorAdapter.isConfigured()) {
+          return Response.json({ error: "Cursor API not configured" }, { status: 503 });
+        }
+        await discoverCursorAgents();
+        return Response.json({ ok: true, agents: agentStates.filter(a => a.source === "cursor") });
+      }
+
+      // List Cursor agents directly (for debugging)
+      if (path === "/cursor/agents" && req.method === "GET") {
+        if (!cursorAdapter.isConfigured()) {
+          return Response.json({ error: "Cursor API not configured" }, { status: 503 });
+        }
+        const response = await cursorAdapter.listAgents({ limit: 10 });
+        return Response.json(response);
       }
 
       // PermissionRequest hook - the primary permission control hook

@@ -1,6 +1,18 @@
 // Agent types
 export type AgentState = "working" | "waiting" | "idle" | "error" | "done";
 
+// Agent source - what system controls this slot
+export type AgentSource = "claude" | "cursor" | "mock";
+
+// Cursor agent reference for slots backed by Cursor Cloud
+export interface CursorSlotInfo {
+  agentId: string; // bc-XXXX format
+  agentName: string;
+  agentUrl: string;
+  latestRunId?: string;
+  latestRunStatus?: string;
+}
+
 // FIGHT wheel option (Mass Effect paraphrase / Pokémon move style)
 export interface FightOption {
   index: number;        // 0-5 position in wheel
@@ -24,6 +36,8 @@ export interface AgentStatus {
   active: boolean;        // true if slot has a live session
   options?: FightOption[]; // FIGHT wheel options (3-6 items)
   lastBeat?: string;       // Last significant agent action (for top screen)
+  source: AgentSource;     // What system controls this slot
+  cursorInfo?: CursorSlotInfo; // Cursor-specific info when source="cursor"
 }
 
 // PermissionRequest hook payload from Claude Code
@@ -105,6 +119,9 @@ export interface AgentStatusMessage {
   active: boolean;
   options?: FightOption[];  // FIGHT wheel options
   lastBeat?: string;         // Last agent beat for top screen
+  source: AgentSource;       // What system controls this slot
+  cursorAgentId?: string;    // Cursor agent ID when source="cursor"
+  cursorAgentUrl?: string;   // Link to Cursor agent page
 }
 
 export interface SpawnResultMessage {
