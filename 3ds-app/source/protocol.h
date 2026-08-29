@@ -11,6 +11,26 @@ typedef enum {
     STATE_DONE
 } AgentState;
 
+// FIGHT wheel option kinds (for visual styling)
+typedef enum {
+    OPT_KIND_STEER = 0,
+    OPT_KIND_QUESTION,
+    OPT_KIND_ACTION,
+    OPT_KIND_META
+} OptionKind;
+
+// FIGHT wheel option (Mass Effect paraphrase / Pokémon move style)
+#define MAX_OPTIONS 6
+#define OPTION_LABEL_LEN 32
+#define OPTION_PROMPT_LEN 128
+
+typedef struct {
+    int index;                          // 0-5 position
+    char label[OPTION_LABEL_LEN];       // Short display text
+    char full_prompt[OPTION_PROMPT_LEN]; // Full prompt to send
+    OptionKind kind;                    // Visual style hint
+} FightOption;
+
 typedef struct {
     char name[32];
     AgentState state;
@@ -26,6 +46,10 @@ typedef struct {
     bool spawning;              // true during pokeball animation
     int spawn_anim_frame;       // animation progress
     bool active;                // true if this slot has a live session
+    // FIGHT wheel
+    FightOption options[MAX_OPTIONS];
+    int option_count;           // Number of valid options (0-6)
+    char last_beat[64];         // Last agent action (for top screen status)
 } Agent;
 
 #define MAX_AGENTS 4

@@ -10,8 +10,8 @@
     "start": "bun run src/index.ts",
     "test": "bun test"
   },
-  "dependencies": {},
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "^7.0.2"
   }
 }

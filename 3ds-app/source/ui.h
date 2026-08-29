@@ -43,4 +43,16 @@ void ui_set_auto_edit(bool enabled);
 // Scroll tool detail up/down (direction: -1 = up, +1 = down)
 void ui_scroll_detail(int direction);
 
+// FIGHT wheel controls
+void ui_fight_set_highlight(int index);   // Set highlighted option (0-5)
+int ui_fight_get_highlight(void);          // Get current highlight
+void ui_fight_highlight_up(void);          // Move highlight up
+void ui_fight_highlight_down(void);        // Move highlight down
+int ui_touch_fight_option(touchPosition touch, int option_count);  // Check touch on option (returns 0-5, or -1)
+
+// Input feedback (for QA/debugging)
+void ui_set_last_key(const char* key);     // Set last key pressed (shown on screen)
+void ui_flash_no_moves(void);              // Flash "NO MOVES" feedback
+void ui_flash_run_sent(void);              // Flash "RUN sent" feedback
+
 #endif // UI_H
