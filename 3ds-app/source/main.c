@@ -9,6 +9,7 @@
 #include "config.h"
 #include "animation.h"
 #include "creature.h"
+#include "spritegen.h"
 #include "audio.h"
 
 // Reconnection timing
@@ -26,6 +27,7 @@ static int scroll_cooldown = 0;          // frame counter for circle pad debounc
 // Animation state per creature slot
 static AnimState creature_anims[MAX_AGENTS];
 static AgentState prev_agent_states[MAX_AGENTS];  // for detecting state transitions
+static char prev_agent_names[MAX_AGENTS][32];     // for detecting name changes (sprite regen)
 
 int main(int argc, char* argv[]) {
     // Initialize services
@@ -60,11 +62,15 @@ int main(int argc, char* argv[]) {
     agents[0].active = true;
     agent_count = 1;
 
-    // Initialize animation states
+    // Initialize animation states and generate sprites
     for (int i = 0; i < MAX_AGENTS; i++) {
         anim_set(&creature_anims[i], &anim_idle);
         prev_agent_states[i] = STATE_IDLE;
+        prev_agent_names[i][0] = '\0';
     }
+    // Generate sprite for default agent
+    anim_generate_sprite(&creature_anims[0], 0, agents[0].name);
+    strcpy(prev_agent_names[0], agents[0].name);
 
     // Main loop
     while (aptMainLoop()) {
@@ -76,6 +82,15 @@ int main(int argc, char* argv[]) {
 
         // Network polling
         network_poll(agents, &agent_count);
+
+        // Regenerate sprites when agent names change (new connection)
+        for (int i = 0; i < agent_count; i++) {
+            if (strcmp(agents[i].name, prev_agent_names[i]) != 0) {
+                anim_generate_sprite(&creature_anims[i], i, agents[i].name);
+                strncpy(prev_agent_names[i], agents[i].name, sizeof(prev_agent_names[i]) - 1);
+                prev_agent_names[i][sizeof(prev_agent_names[i]) - 1] = '\0';
+            }
+        }
 
         // Reconnection logic
         if (!network_is_connected()) {

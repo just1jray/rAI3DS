@@ -349,7 +349,8 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
 
     if (agent_count <= 1) {
         // === Expanded single-agent layout ===
-        Agent* agent = (agent_count > 0) ? &agents[0] : NULL;
+        int safe_selected = (agent_count > 0 && selected < agent_count) ? selected : 0;
+        Agent* agent = (agent_count > 0) ? &agents[safe_selected] : NULL;
 
         // Title bar (y=0, 24px)
         C2D_DrawRectSolid(0, 0, 0, TOP_WIDTH, 24, clrCrust);
@@ -370,9 +371,9 @@ void ui_render_top(C3D_RenderTarget* target, Agent* agents, int agent_count,
         // Agent header with creature (y=28, 50px)
         C2D_DrawRectSolid(0, 28, 0, TOP_WIDTH, 50, clrMantle);
 
-        // Draw creature in header area
+        // Draw creature in header area (use selected slot's sprite)
         if (anims) {
-            const CreatureFrame* frame = anim_current_frame(&anims[0]);
+            const CreatureFrame* frame = anim_current_frame(&anims[safe_selected]);
             if (frame) {
                 draw_creature(15, 30, 3, frame);  // scale 3 = 48x48
             }
@@ -614,9 +615,9 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
         float slot_h = 53;
         for (int i = 0; i < SLOT_COUNT; i++) {
             float sx = SLOT_START_X + i * (SLOT_W + SLOT_GAP);
-            Agent* a = (i < agent_count) ? &agents[i] : NULL;
-            draw_creature_slot(sx, 0, SLOT_W, slot_h, i, a, (i == selected),
-                              anims ? &anims[i] : NULL);
+            Agent* a = (i < agent_count && agents[i].active) ? &agents[i] : NULL;
+            AnimState* anim_for_slot = (a && anims) ? &anims[i] : NULL;
+            draw_creature_slot(sx, 0, SLOT_W, slot_h, i, a, (i == selected), anim_for_slot);
         }
 
         // Tool detail card (y=58-118)
@@ -705,9 +706,9 @@ void ui_render_bottom(C3D_RenderTarget* target, Agent* agents, int agent_count,
         float slot_h = 50;
         for (int i = 0; i < SLOT_COUNT; i++) {
             float sx = SLOT_START_X + i * (SLOT_W + SLOT_GAP);
-            Agent* a = (i < agent_count) ? &agents[i] : NULL;
-            draw_creature_slot(sx, 0, SLOT_W, slot_h, i, a, (i == selected),
-                              anims ? &anims[i] : NULL);
+            Agent* a = (i < agent_count && agents[i].active) ? &agents[i] : NULL;
+            AnimState* anim_for_slot = (a && anims) ? &anims[i] : NULL;
+            draw_creature_slot(sx, 0, SLOT_W, slot_h, i, a, (i == selected), anim_for_slot);
         }
 
         // FIGHT wheel (y=55-210)
