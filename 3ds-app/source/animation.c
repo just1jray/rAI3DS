@@ -1,19 +1,12 @@
 #include "animation.h"
 #include "creature.h"
+#include "spritegen.h"
 #include <string.h>
 
-// We store the creature frames used by each animation inline.
+// Animation timing definitions
 // idle: 2 frames (normal + raised), 20 ticks/frame = ~3Hz
 // working: 2 frames (normal + raised), 10 ticks/frame = ~6Hz
 // waiting: 2 frames (normal + raised), 8 ticks/frame = ~7.5Hz
-
-// For idle/working/waiting, we reference the same clawd pixel data
-// but with different tick rates. The caller can apply color tint
-// based on the animation type if desired.
-
-// We use creature_get_clawd_frame() to get the actual frame data,
-// so AnimDef.frames just needs to hold the frame count metadata.
-// We'll store dummy frames and use anim_current_frame() to dispatch.
 
 // Idle animation: gentle bob at ~3Hz
 static const CreatureFrame idle_frames_placeholder[2] = {0};
@@ -80,11 +73,24 @@ void anim_set(AnimState* state, const AnimDef* def) {
     state->finished = false;
 }
 
+void anim_generate_sprite(AnimState* state, int slot_index, const char* agent_name) {
+    if (!state) return;
+    uint32_t seed = spritegen_make_seed(slot_index, agent_name);
+    spritegen_create(&state->sprite, seed);
+    state->has_sprite = true;
+}
+
 const CreatureFrame* anim_current_frame(const AnimState* state) {
     if (!state || !state->current) return NULL;
 
-    // For all clawd animations, use the actual clawd pixel data
-    // frame_index 0 = normal, frame_index 1 = raised
-    int idx = state->frame_index % 2;  // clawd only has 2 visual frames
+    // frame_index 0 = normal, frame_index 1 = raised (bob)
+    int idx = state->frame_index % 2;
+    
+    // Use generated sprite if available
+    if (state->has_sprite) {
+        return spritegen_get_frame(&state->sprite, idx);
+    }
+    
+    // Fallback to legacy clawd frames
     return creature_get_clawd_frame(idx);
 }

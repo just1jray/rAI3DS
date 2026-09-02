@@ -45,6 +45,10 @@ I love the 3DS, and I have always wanted to build a homebrew app. Vibe coding ha
 - Nested menus with prompts, commands, skills, plugins, and more
 - Add support for other agent providers (Codex, Gemini, etc.)
 
+## Sprite Generation
+
+Each party slot displays a unique procedurally-generated 8-bit creature. Sprites are deterministically generated from a seed combining the slot index and agent name hash — same name in the same slot always produces the same creature. Six archetypes (crab, blob, bot, bird, slime, knight) ensure visual variety across slots. No external APIs or image generation; all sprites are built on-device from pixel patterns.
+
 ## Cursor Cloud Agents (NEW)
 
 The 3DS can now steer **Cursor Cloud Agents** directly via the Cursor API — the same way Cursor Mobile does.

@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include "creature.h"
+#include "spritegen.h"
 
 typedef struct {
     const CreatureFrame* frames;
@@ -16,6 +17,8 @@ typedef struct {
     int frame_index;
     int tick_counter;
     bool finished;         // true when one_shot completes
+    GeneratedSprite sprite; // per-slot generated sprite
+    bool has_sprite;        // true if sprite was generated
 } AnimState;
 
 // Animation definitions for each agent state
@@ -30,7 +33,10 @@ void anim_tick(AnimState* state);
 // Switch to a new animation definition, resetting state
 void anim_set(AnimState* state, const AnimDef* def);
 
-// Get the current frame to render
+// Generate a unique sprite for this animation state based on slot and name
+void anim_generate_sprite(AnimState* state, int slot_index, const char* agent_name);
+
+// Get the current frame to render (uses generated sprite if available)
 const CreatureFrame* anim_current_frame(const AnimState* state);
 
 #endif // ANIMATION_H

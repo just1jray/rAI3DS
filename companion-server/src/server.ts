@@ -428,7 +428,7 @@ async function discoverCursorAgents() {
       };
 
       updateState(slotIndex, {
-        name: slotIndex === 0 ? "cursor" : shortName,
+        name: shortName,
         state,
         message,
         active: agent.status === "ACTIVE",
