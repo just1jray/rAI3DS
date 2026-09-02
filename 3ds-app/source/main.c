@@ -331,29 +331,31 @@ int main(int argc, char* argv[]) {
                 }
             }
             // D-pad left/right switches ACTIVE agents in FIGHT mode
-            // Check both kDown (instant) and kHeld (with cooldown) for reliability
-            if (agent_count > 0 && agent_switch_cooldown == 0) {
-                if ((kDown | kHeld) & KEY_LEFT) {
+            // kDown always fires immediately; kHeld respects cooldown for auto-repeat
+            if (agent_count > 0) {
+                bool left_press = (kDown & KEY_LEFT) || (agent_switch_cooldown == 0 && (kHeld & KEY_LEFT));
+                bool right_press = (kDown & KEY_RIGHT) || (agent_switch_cooldown == 0 && (kHeld & KEY_RIGHT));
+                if (left_press) {
                     selectedAgent = find_prev_active(selectedAgent, agent_count);
                     ui_fight_set_highlight(0);
-                    agent_switch_cooldown = (kDown & KEY_LEFT) ? 12 : 10;
-                }
-                if ((kDown | kHeld) & KEY_RIGHT) {
+                    agent_switch_cooldown = 10;
+                } else if (right_press) {
                     selectedAgent = find_next_active(selectedAgent, agent_count);
                     ui_fight_set_highlight(0);
-                    agent_switch_cooldown = (kDown & KEY_RIGHT) ? 12 : 10;
+                    agent_switch_cooldown = 10;
                 }
             }
         } else if (in_fight) {
             // FIGHT mode with no options - D-pad switches ACTIVE agents
-            if (agent_count > 0 && agent_switch_cooldown == 0) {
-                if ((kDown | kHeld) & KEY_LEFT) {
+            if (agent_count > 0) {
+                bool left_press = (kDown & KEY_LEFT) || (agent_switch_cooldown == 0 && (kHeld & KEY_LEFT));
+                bool right_press = (kDown & KEY_RIGHT) || (agent_switch_cooldown == 0 && (kHeld & KEY_RIGHT));
+                if (left_press) {
                     selectedAgent = find_prev_active(selectedAgent, agent_count);
-                    agent_switch_cooldown = (kDown & KEY_LEFT) ? 12 : 10;
-                }
-                if ((kDown | kHeld) & KEY_RIGHT) {
+                    agent_switch_cooldown = 10;
+                } else if (right_press) {
                     selectedAgent = find_next_active(selectedAgent, agent_count);
-                    agent_switch_cooldown = (kDown & KEY_RIGHT) ? 12 : 10;
+                    agent_switch_cooldown = 10;
                 }
             }
         } else {
@@ -374,17 +376,18 @@ int main(int argc, char* argv[]) {
         }
 
         // L/R bumpers cycle through ACTIVE agents only
-        // Check both kDown (instant) and kHeld (with cooldown) for Azahar reliability
-        if (agent_count > 0 && agent_switch_cooldown == 0) {
-            if ((kDown | kHeld) & KEY_R) {
+        // kDown always fires immediately; kHeld respects cooldown for auto-repeat
+        if (agent_count > 0) {
+            bool r_press = (kDown & KEY_R) || (agent_switch_cooldown == 0 && (kHeld & KEY_R));
+            bool l_press = (kDown & KEY_L) || (agent_switch_cooldown == 0 && (kHeld & KEY_L));
+            if (r_press) {
                 selectedAgent = find_next_active(selectedAgent, agent_count);
                 ui_fight_set_highlight(0);
-                agent_switch_cooldown = (kDown & KEY_R) ? 12 : 10;
-            }
-            if ((kDown | kHeld) & KEY_L) {
+                agent_switch_cooldown = 10;
+            } else if (l_press) {
                 selectedAgent = find_prev_active(selectedAgent, agent_count);
                 ui_fight_set_highlight(0);
-                agent_switch_cooldown = (kDown & KEY_L) ? 12 : 10;
+                agent_switch_cooldown = 10;
             }
         }
 
