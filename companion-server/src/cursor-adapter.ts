@@ -279,26 +279,35 @@ export class MockCursorAdapter extends CursorAdapter {
   constructor() {
     super({ apiKey: "mock-key" });
 
-    // Initialize with a mock agent
-    const mockAgent: CursorAgent = {
-      id: "bc-mock-0000-0000-0000-000000000001",
-      name: "Mock Cursor Agent",
-      status: "ACTIVE",
-      url: "https://cursor.com/agents/bc-mock-0000-0000-0000-000000000001",
-      latestRunId: "run-mock-0000-0000-0000-000000000001",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    this.mockAgents.set(mockAgent.id, mockAgent);
+    // Initialize with THREE mock agents for multi-slot testing
+    // Different names ensure different generated sprites
+    const mockAgentConfigs = [
+      { id: "bc-mock-0000-0000-0000-000000000001", name: "cursor" },
+      { id: "bc-mock-0000-0000-0000-000000000002", name: "blob" },
+      { id: "bc-mock-0000-0000-0000-000000000003", name: "knight" },
+    ];
 
-    const mockRun: CursorRun = {
-      id: "run-mock-0000-0000-0000-000000000001",
-      agentId: mockAgent.id,
-      status: "RUNNING",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    this.mockRuns.set(mockRun.id, mockRun);
+    for (const config of mockAgentConfigs) {
+      const mockAgent: CursorAgent = {
+        id: config.id,
+        name: config.name,
+        status: "ACTIVE",
+        url: `https://cursor.com/agents/${config.id}`,
+        latestRunId: `run-${config.id}`,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      this.mockAgents.set(mockAgent.id, mockAgent);
+
+      const mockRun: CursorRun = {
+        id: `run-${config.id}`,
+        agentId: mockAgent.id,
+        status: "RUNNING",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      this.mockRuns.set(mockRun.id, mockRun);
+    }
   }
 
   isConfigured(): boolean {

@@ -9,6 +9,7 @@
 #include "config.h"
 #include "animation.h"
 #include "creature.h"
+#include "spritegen.h"
 #include "audio.h"
 
 // Reconnection timing
@@ -22,10 +23,44 @@ static bool network_ready = false;       // network_init() succeeded
 static bool first_connection_done = false;  // defer first connect until after first frame (avoids blocking on real 3DS)
 static bool auto_edit = false;           // auto-accept Edit/Write tools
 static int scroll_cooldown = 0;          // frame counter for circle pad debounce
+static int agent_switch_cooldown = 0;    // frame counter for L/R and D-pad agent switching
 
 // Animation state per creature slot
 static AnimState creature_anims[MAX_AGENTS];
 static AgentState prev_agent_states[MAX_AGENTS];  // for detecting state transitions
+static char prev_agent_names[MAX_AGENTS][32];     // for detecting name changes (sprite regen)
+
+// Find next active agent slot (wraps around, skips inactive)
+// Returns current if no other active slots exist
+static int find_next_active(int current, int count) {
+    if (count <= 0) return 0;
+    for (int i = 1; i <= count; i++) {
+        int idx = (current + i) % count;
+        if (agents[idx].active) return idx;
+    }
+    return current;  // No other active found, stay put
+}
+
+// Find previous active agent slot (wraps around, skips inactive)
+static int find_prev_active(int current, int count) {
+    if (count <= 0) return 0;
+    for (int i = 1; i <= count; i++) {
+        int idx = (current - i + count) % count;
+        if (agents[idx].active) return idx;
+    }
+    return current;  // No other active found, stay put
+}
+
+// Snap selection to nearest active if current is inactive
+static int snap_to_active(int current, int count) {
+    if (count <= 0) return 0;
+    if (current < count && agents[current].active) return current;
+    // Try to find any active slot
+    for (int i = 0; i < count; i++) {
+        if (agents[i].active) return i;
+    }
+    return 0;  // Fallback
+}
 
 int main(int argc, char* argv[]) {
     // Initialize services
@@ -60,22 +95,42 @@ int main(int argc, char* argv[]) {
     agents[0].active = true;
     agent_count = 1;
 
-    // Initialize animation states
+    // Initialize animation states and generate sprites
     for (int i = 0; i < MAX_AGENTS; i++) {
         anim_set(&creature_anims[i], &anim_idle);
         prev_agent_states[i] = STATE_IDLE;
+        prev_agent_names[i][0] = '\0';
     }
+    // Generate sprite for default agent
+    anim_generate_sprite(&creature_anims[0], 0, agents[0].name);
+    strcpy(prev_agent_names[0], agents[0].name);
 
     // Main loop
     while (aptMainLoop()) {
         hidScanInput();
         u32 kDown = hidKeysDown();
+        u32 kHeld = hidKeysHeld();
 
         if (kDown & KEY_START)
             break;
 
+        // Decrement cooldowns
+        if (agent_switch_cooldown > 0) agent_switch_cooldown--;
+
         // Network polling
         network_poll(agents, &agent_count);
+
+        // Snap selection to active slot if current became inactive
+        selectedAgent = snap_to_active(selectedAgent, agent_count);
+
+        // Regenerate sprites when agent names change (new connection)
+        for (int i = 0; i < agent_count; i++) {
+            if (strcmp(agents[i].name, prev_agent_names[i]) != 0) {
+                anim_generate_sprite(&creature_anims[i], i, agents[i].name);
+                strncpy(prev_agent_names[i], agents[i].name, sizeof(prev_agent_names[i]) - 1);
+                prev_agent_names[i][sizeof(prev_agent_names[i]) - 1] = '\0';
+            }
+        }
 
         // Reconnection logic
         if (!network_is_connected()) {
@@ -275,48 +330,65 @@ int main(int argc, char* argv[]) {
                     ui_fight_highlight_down();
                 }
             }
-            // D-pad left/right still switches agents in FIGHT mode
-            if (kDown & KEY_LEFT && agent_count > 0) {
-                selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
-                ui_fight_set_highlight(0);
-            }
-            if (kDown & KEY_RIGHT && agent_count > 0) {
-                selectedAgent = (selectedAgent + 1) % agent_count;
-                ui_fight_set_highlight(0);
+            // D-pad left/right switches ACTIVE agents in FIGHT mode
+            // kDown always fires immediately; kHeld respects cooldown for auto-repeat
+            if (agent_count > 0) {
+                bool left_press = (kDown & KEY_LEFT) || (agent_switch_cooldown == 0 && (kHeld & KEY_LEFT));
+                bool right_press = (kDown & KEY_RIGHT) || (agent_switch_cooldown == 0 && (kHeld & KEY_RIGHT));
+                if (left_press) {
+                    selectedAgent = find_prev_active(selectedAgent, agent_count);
+                    ui_fight_set_highlight(0);
+                    agent_switch_cooldown = 10;
+                } else if (right_press) {
+                    selectedAgent = find_next_active(selectedAgent, agent_count);
+                    ui_fight_set_highlight(0);
+                    agent_switch_cooldown = 10;
+                }
             }
         } else if (in_fight) {
-            // FIGHT mode with no options - D-pad switches agents
-            if (kDown & KEY_LEFT && agent_count > 0) {
-                selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
-            }
-            if (kDown & KEY_RIGHT && agent_count > 0) {
-                selectedAgent = (selectedAgent + 1) % agent_count;
+            // FIGHT mode with no options - D-pad switches ACTIVE agents
+            if (agent_count > 0) {
+                bool left_press = (kDown & KEY_LEFT) || (agent_switch_cooldown == 0 && (kHeld & KEY_LEFT));
+                bool right_press = (kDown & KEY_RIGHT) || (agent_switch_cooldown == 0 && (kHeld & KEY_RIGHT));
+                if (left_press) {
+                    selectedAgent = find_prev_active(selectedAgent, agent_count);
+                    agent_switch_cooldown = 10;
+                } else if (right_press) {
+                    selectedAgent = find_next_active(selectedAgent, agent_count);
+                    agent_switch_cooldown = 10;
+                }
             }
         } else {
-            // In prompt mode or no options: D-pad scrolls detail
+            // In prompt mode: D-pad scrolls detail
             if (kDown & KEY_LEFT) {
                 ui_scroll_detail(-1);
             }
             if (kDown & KEY_RIGHT) {
                 ui_scroll_detail(1);
             }
-            // D-pad up/down switches agents
+            // D-pad up/down switches ACTIVE agents
             if (kDown & KEY_DOWN && agent_count > 0) {
-                selectedAgent = (selectedAgent + 1) % agent_count;
+                selectedAgent = find_next_active(selectedAgent, agent_count);
             }
             if (kDown & KEY_UP && agent_count > 0) {
-                selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
+                selectedAgent = find_prev_active(selectedAgent, agent_count);
             }
         }
 
-        // L/R bumpers always cycle selected agent
-        if (kDown & KEY_R && agent_count > 0) {
-            selectedAgent = (selectedAgent + 1) % agent_count;
-            ui_fight_set_highlight(0);  // Reset highlight when switching
-        }
-        if (kDown & KEY_L && agent_count > 0) {
-            selectedAgent = (selectedAgent - 1 + agent_count) % agent_count;
-            ui_fight_set_highlight(0);  // Reset highlight when switching
+        // L/R bumpers cycle through ACTIVE agents only
+        // kDown always fires immediately; kHeld respects cooldown for auto-repeat
+        if (agent_count > 0) {
+            bool r_press = (kDown & KEY_R) || (agent_switch_cooldown == 0 && (kHeld & KEY_R));
+            bool l_press = (kDown & KEY_L) || (agent_switch_cooldown == 0 && (kHeld & KEY_L));
+            if (r_press) {
+                selectedAgent = find_next_active(selectedAgent, agent_count);
+                ui_fight_set_highlight(0);
+                agent_switch_cooldown = 10;
+            } else if (l_press) {
+                selectedAgent = find_prev_active(selectedAgent, agent_count);
+                ui_fight_set_highlight(0);
+                agent_switch_cooldown = 10;
+            }
         }
 
         // Render (always draw first so real 3DS shows UI before any blocking connect)
